@@ -1,4 +1,4 @@
-use crate::{PlanetKind, Uniforms, fragment::Fragment};
+use crate::{fragment::Fragment, PlanetKind, Uniforms};
 use raylib::prelude::*;
 
 fn mix(a: Vector3, b: Vector3, t: f32) -> Vector3 {
@@ -12,9 +12,8 @@ fn hash(p: Vector3) -> f32 {
     let x = p.x as i32 as u32;
     let y = p.y as i32 as u32;
     let z = p.z as i32 as u32;
-    let mut value = x.wrapping_mul(0x8da6_b343)
-        ^ y.wrapping_mul(0xd816_3841)
-        ^ z.wrapping_mul(0xcb1a_b31f);
+    let mut value =
+        x.wrapping_mul(0x8da6_b343) ^ y.wrapping_mul(0xd816_3841) ^ z.wrapping_mul(0xcb1a_b31f);
     value ^= value >> 13;
     value = value.wrapping_mul(0x85eb_ca6b);
     value ^= value >> 16;
@@ -51,10 +50,9 @@ fn fbm(mut p: Vector3) -> f32 {
 
 fn cloud_mask(position: Vector3, uniforms: &Uniforms) -> f32 {
     let drift = Vector3::new(uniforms.time * 0.025, 0.0, uniforms.time * 0.012);
-    let field = (noise(position * 6.0 + drift) * 0.65
-        + noise(position * 12.0 + drift * 1.7) * 0.35)
-        * 0.5
-        + 0.5;
+    let field =
+        (noise(position * 6.0 + drift) * 0.65 + noise(position * 12.0 + drift * 1.7) * 0.35) * 0.5
+            + 0.5;
     let edge = 0.95 - uniforms.cloud_coverage * 0.8;
     smoothstep(edge, edge + 0.14, field) * uniforms.cloud_coverage
 }
@@ -77,6 +75,19 @@ pub fn shade(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     let p = fragment.object_position;
     let geometric_normal = fragment.normal.normalize();
     let n = geometric_normal;
+    if uniforms.planet_kind == PlanetKind::Ship {
+        let sun_direction = Vector3::new(-0.55, 0.32, 0.77).normalize();
+        let diffuse = (n.dot(sun_direction)).max(0.0);
+        let model = uniforms.model_matrix;
+        let world_position = Vector3::new(
+            model.m0 * p.x + model.m4 * p.y + model.m8 * p.z + model.m12,
+            model.m1 * p.x + model.m5 * p.y + model.m9 * p.z + model.m13,
+            model.m2 * p.x + model.m6 * p.y + model.m10 * p.z + model.m14,
+        );
+        let rim = (1.0 - n.dot((uniforms.camera_position - world_position).normalize()).max(0.0))
+            .powf(2.0);
+        return fragment.color * (0.28 + diffuse * 0.72) + Vector3::new(0.05, 0.32, 0.48) * rim;
+    }
     // Luz direccional fija: el terminador divide claramente ambos hemisferios.
     let sun_direction = Vector3::new(-0.55, 0.32, 0.77).normalize();
     let sun_facing = n.dot(sun_direction);
@@ -179,7 +190,8 @@ fn shade_gas_giant(
 
     // La deformación afecta las bandas y su ruido, no solo el color de la tormenta.
     let turbulence = noise(warped_position * 6.0 + drift);
-    let wave = (warped_position.y * 30.0 + turbulence * 3.0 + uniforms.time * 0.035).sin() * 0.5 + 0.5;
+    let wave =
+        (warped_position.y * 30.0 + turbulence * 3.0 + uniforms.time * 0.035).sin() * 0.5 + 0.5;
     let band = smoothstep(0.34, 0.66, wave);
     let mut color = mix(
         Vector3::new(0.003, 0.12, 0.35),
@@ -187,8 +199,13 @@ fn shade_gas_giant(
         band,
     );
 
-    let fine_wave = (warped_position.y * 78.0 + noise(warped_position * 11.0 + drift) * 2.0).sin() * 1.0 + 1.0;
-    color = mix(color, Vector3::new(1.0, 1.0, 1.0), smoothstep(0.91, 0.98, fine_wave) * 0.45);
+    let fine_wave =
+        (warped_position.y * 78.0 + noise(warped_position * 11.0 + drift) * 2.0).sin() * 1.0 + 1.0;
+    color = mix(
+        color,
+        Vector3::new(1.0, 1.0, 1.0),
+        smoothstep(0.91, 0.98, fine_wave) * 0.45,
+    );
 
     // Una tormenta ovalada permanece en coordenadas del planeta mientras las bandas fluyen.
     let storm_distance = 1.0 - geometric_normal.dot(storm_center).clamp(-1.0, 1.0);

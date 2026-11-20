@@ -38,24 +38,7 @@ pub enum PlanetKind {
     Rocky,
     GasGiant,
     Star,
-}
-
-struct OrbitCamera {
-    yaw: f32,
-    pitch: f32,
-    distance: f32,
-    target: Vector3,
-}
-
-impl OrbitCamera {
-    fn position(&self) -> Vector3 {
-        let horizontal = self.distance * self.pitch.cos();
-        Vector3::new(
-            self.target.x + horizontal * self.yaw.sin(),
-            self.target.y + self.distance * self.pitch.sin(),
-            self.target.z + horizontal * self.yaw.cos(),
-        )
-    }
+    Ship,
 }
 
 fn main() {
@@ -66,7 +49,7 @@ fn main() {
 
     let (mut window, thread) = raylib::init()
         .size(800, 600)
-        .title("Planeta rocoso")
+        .title("Viaje por la galaxia")
         .build();
 
     let monitor = raylib::core::window::get_current_monitor();
@@ -100,18 +83,30 @@ fn main() {
         .iter()
         .map(|&index| Vertex::new_with_color(mesh.vertices[index], Vector3::new(1.0, 1.0, 1.0)))
         .collect();
-    let mut camera = OrbitCamera {
-        yaw: 0.0,
-        pitch: 0.0,
-        distance: 3.0,
-        target: Vector3::zero(),
-    };
+    let ship_mesh = object::load_obj("model/Nave.obj").expect("No se pudo cargar model/Nave.obj");
+    let ship_vertices: Vec<Vertex> = ship_mesh
+        .indices
+        .iter()
+        .map(|&index| {
+            let position = ship_mesh.vertices[index];
+            let wing_color = if position.x.abs() > 1.2 {
+                Vector3::new(0.18, 0.68, 0.9)
+            } else {
+                Vector3::new(0.72, 0.82, 0.88)
+            };
+            Vertex::new_with_color(position, wing_color)
+        })
+        .collect();
+    let mut ship_position = Vector3::new(0.0, 0.0, -8.0);
+    let mut ship_yaw = 0.0_f32;
+    let mut ship_pitch = 0.0_f32;
+    let mut ship_speed = 0.0_f32;
     let start_time = Instant::now();
     let mut cloud_coverage = 0.55_f32;
     let mut planet_kind = PlanetKind::Rocky;
 
     while !window.window_should_close() {
-        let dt = window.get_frame_time();
+        let dt = window.get_frame_time().min(0.05);
         if window.is_key_pressed(KeyboardKey::KEY_ONE) {
             planet_kind = PlanetKind::Rocky;
         }
@@ -127,46 +122,86 @@ fn main() {
         if window.is_key_down(KeyboardKey::KEY_PAGE_DOWN) {
             cloud_coverage = (cloud_coverage - dt * 0.35).clamp(0.0, 1.0);
         }
-        let orbit_speed = 1.8 * dt;
+        let turn_speed = 1.5 * dt;
         if window.is_key_down(KeyboardKey::KEY_LEFT) {
-            camera.yaw -= orbit_speed;
+            ship_yaw -= turn_speed;
         }
         if window.is_key_down(KeyboardKey::KEY_RIGHT) {
-            camera.yaw += orbit_speed;
+            ship_yaw += turn_speed;
         }
         if window.is_key_down(KeyboardKey::KEY_UP) {
-            camera.pitch = (camera.pitch + orbit_speed).clamp(-1.45, 1.45);
+            ship_pitch = (ship_pitch + turn_speed).clamp(-1.35, 1.35);
         }
         if window.is_key_down(KeyboardKey::KEY_DOWN) {
-            camera.pitch = (camera.pitch - orbit_speed).clamp(-1.45, 1.45);
+            ship_pitch = (ship_pitch - turn_speed).clamp(-1.35, 1.35);
         }
-        if window.is_key_down(KeyboardKey::KEY_W) {
-            camera.distance = (camera.distance - 3.0 * dt).max(1.5);
-        }
-        if window.is_key_down(KeyboardKey::KEY_S) {
-            camera.distance += 3.0 * dt;
+        let forward = ship_forward(ship_yaw, ship_pitch);
+        let right = Vector3::new(ship_yaw.cos(), 0.0, -ship_yaw.sin());
+        let thrust = if window.is_key_down(KeyboardKey::KEY_W) {
+            1.0
+        } else if window.is_key_down(KeyboardKey::KEY_S) {
+            -0.65
+        } else {
+            0.0
+        };
+        let max_speed = if window.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) {
+            30.0
+        } else {
+            18.0
+        };
+        ship_speed = (ship_speed + thrust * 12.0 * dt).clamp(-5.0, max_speed);
+        if thrust == 0.0 {
+            ship_speed *= (1.0 - 0.7 * dt).max(0.0);
         }
         if window.is_key_down(KeyboardKey::KEY_A) {
-            camera.target.x -= 2.0 * dt;
+            ship_position -= right * (5.0 * dt);
         }
         if window.is_key_down(KeyboardKey::KEY_D) {
-            camera.target.x += 2.0 * dt;
+            ship_position += right * (5.0 * dt);
         }
-        let frame_uniforms = Uniforms {
+        if window.is_key_down(KeyboardKey::KEY_R) {
+            ship_position.y += 5.0 * dt;
+        }
+        if window.is_key_down(KeyboardKey::KEY_F) {
+            ship_position.y -= 5.0 * dt;
+        }
+        ship_position += forward * (ship_speed * dt);
+
+        let camera_target = ship_position + forward * 2.0;
+        let camera_position = ship_position - forward * 5.0 + Vector3::new(0.0, 1.5, 0.0);
+        let time = start_time.elapsed().as_secs_f32();
+        depth_buffer.fill(f32::INFINITY);
+        let planet_uniforms = Uniforms {
             model_matrix: Matrix::identity(),
-            camera_position: camera.position(),
-            camera_target: camera.target,
+            camera_position,
+            camera_target,
             screen_width: render_width as f32,
             screen_height: render_height as f32,
-            time: start_time.elapsed().as_secs_f32(),
+            time,
             cloud_coverage,
             planet_kind,
         };
         framebuffer.clear();
         render(
             &mut framebuffer,
-            &frame_uniforms,
+            &planet_uniforms,
             &vertex_array,
+            &mut depth_buffer,
+        );
+        let ship_uniforms = Uniforms {
+            model_matrix: ship_model_matrix(ship_position, ship_yaw, ship_pitch, 0.12),
+            camera_position,
+            camera_target,
+            screen_width: render_width as f32,
+            screen_height: render_height as f32,
+            time,
+            cloud_coverage,
+            planet_kind: PlanetKind::Ship,
+        };
+        render(
+            &mut framebuffer,
+            &ship_uniforms,
+            &ship_vertices,
             &mut depth_buffer,
         );
         framebuffer.swap_buffers(&mut window, &thread, display_width, display_height);
@@ -239,7 +274,6 @@ fn render(
     vertex_array: &[Vertex],
     depth_buffer: &mut [f32],
 ) {
-    depth_buffer.fill(f32::INFINITY);
     // 1. Procesamiento de vértices: aplicar la misma matriz compartida a cada vértice.
     let processed_vertices: Vec<Vertex> = vertex_array
         .iter()
@@ -265,11 +299,7 @@ fn render(
         |fragment| {
             let x = fragment.position.x as i32;
             let y = fragment.position.y as i32;
-            if x < 0
-                || y < 0
-                || x as u32 >= framebuffer.width
-                || y as u32 >= framebuffer.height
-            {
+            if x < 0 || y < 0 || x as u32 >= framebuffer.width || y as u32 >= framebuffer.height {
                 return;
             }
             let index = y as usize * framebuffer.width as usize + x as usize;
@@ -281,4 +311,36 @@ fn render(
             framebuffer.point(x, y, color);
         },
     );
+}
+
+fn ship_forward(yaw: f32, pitch: f32) -> Vector3 {
+    Vector3::new(
+        yaw.sin() * pitch.cos(),
+        pitch.sin(),
+        yaw.cos() * pitch.cos(),
+    )
+}
+
+fn ship_model_matrix(position: Vector3, yaw: f32, pitch: f32, scale: f32) -> Matrix {
+    let forward = ship_forward(yaw, pitch);
+    let right = Vector3::new(yaw.cos(), 0.0, -yaw.sin());
+    let up = forward.cross(right);
+    Matrix {
+        m0: right.x * scale,
+        m1: right.y * scale,
+        m2: right.z * scale,
+        m3: 0.0,
+        m4: up.x * scale,
+        m5: up.y * scale,
+        m6: up.z * scale,
+        m7: 0.0,
+        m8: forward.x * scale,
+        m9: forward.y * scale,
+        m10: forward.z * scale,
+        m11: 0.0,
+        m12: position.x,
+        m13: position.y,
+        m14: position.z,
+        m15: 1.0,
+    }
 }

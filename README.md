@@ -1,6 +1,6 @@
-# Planetas y estrella con shaders procedurales
+# Viaje por la galaxia con renderer por CPU
 
-Renderer 3D hecho en Rust. Carga una esfera desde un archivo OBJ y colorea sus fragmentos con shaders procedurales propios. Raylib gestiona la ventana, la imagen y la textura; la transformación, el ensamblado, la rasterización, la iluminación y los patrones se implementan en el proyecto.
+Renderer 3D hecho en Rust. La transformación, el ensamblado, la rasterización, la iluminación y los patrones se calculan en CPU; Raylib gestiona la ventana y presenta el framebuffer. Puedes pilotar una nave cargada desde `model/Nave.obj` alrededor de los cuerpos celestes disponibles.
 
 ## Repositorio
 
@@ -24,9 +24,12 @@ La ventana se centra en el monitor actual y ocupa el 70% de su ancho y el 70% de
 - `2`: gigante gaseoso.
 - `3`: estrella.
 - `Page Up` / `Page Down`: aumenta o reduce la cobertura de nubes del planeta rocoso.
-- Flechas: orbita la cámara.
-- `W` / `S`: acerca o aleja la cámara.
-- `A` / `D`: desplaza el objetivo horizontalmente.
+- Flechas izquierda/derecha: gira la nave.
+- Flechas arriba/abajo: inclina el morro.
+- `W` / `S`: acelera hacia delante o hacia atrás.
+- `A` / `D`: desplázate lateralmente.
+- `R` / `F`: sube o baja.
+- `Shift`: aumenta la velocidad máxima.
 
 ## Cuerpos celestes
 
@@ -74,6 +77,10 @@ Parámetros principales en `shade_star`, dentro de `src/planet.rs`:
 - `p.y * 24.0` y `p.x * 31.0 + p.z * 17.0`: frecuencia de ondas y celdas.
 - Los dos `Vector3` del `mix`: colores fríos y calientes de la superficie.
 - `noise(p * 16.0 + drift)`: tamaño de las zonas de erupción.
+
+## Navegación
+
+La cámara sigue la nave desde atrás. La aceleración conserva la inercia y disminuye gradualmente al soltar `W` o `S`. La nave puede girar, inclinarse, desplazarse lateralmente y cambiar de altura.
 
 ## Animación
 
