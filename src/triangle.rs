@@ -174,3 +174,100 @@ pub fn triangle(a: &Vertex, b: &Vertex, c: &Vertex, mode: TriangleMode) -> Vec<F
         TriangleMode::FilledScanline => filled_scanline(a, b, c),
     }
 }
+
+pub fn triangle_each_scanline(
+    a: &Vertex,
+    b: &Vertex,
+    c: &Vertex,
+    width: u32,
+    height: u32,
+    mut visit: impl FnMut(Fragment),
+) {
+    if width == 0 || height == 0 {
+        return;
+    }
+
+    let p0 = a.transformed_position;
+    let p1 = b.transformed_position;
+    let p2 = c.transformed_position;
+    let area = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
+    if area.abs() < f32::EPSILON {
+        return;
+    }
+
+    let min_y = ((p0.y.min(p1.y).min(p2.y) - 0.5).ceil() as i32).max(0);
+    let max_y = ((p0.y.max(p1.y).max(p2.y) - 0.5).floor() as i32).min(height as i32 - 1);
+    let inv_area = 1.0 / area;
+    let dw0_dx = (p1.y - p2.y) * inv_area;
+    let dw1_dx = (p2.y - p0.y) * inv_area;
+
+    for y in min_y..=max_y {
+        let scan_y = y as f32 + 0.5;
+        let mut intersections = [0.0_f32; 6];
+        let mut count = 0;
+        for (start, end) in [(a, b), (b, c), (c, a)] {
+            let p_start = start.transformed_position;
+            let p_end = end.transformed_position;
+            if (p_start.y - p_end.y).abs() <= f32::EPSILON {
+                if (scan_y - p_start.y).abs() <= 1e-6 {
+                    intersections[count] = p_start.x;
+                    intersections[count + 1] = p_end.x;
+                    count += 2;
+                }
+            } else if scan_y >= p_start.y.min(p_end.y) - 1e-6
+                && scan_y <= p_start.y.max(p_end.y) + 1e-6
+            {
+                let t = (scan_y - p_start.y) / (p_end.y - p_start.y);
+                intersections[count] = p_start.x + (p_end.x - p_start.x) * t;
+                count += 1;
+            }
+        }
+        if count == 0 {
+            continue;
+        }
+        intersections[..count].sort_by(f32::total_cmp);
+        let mut unique_count = 0;
+        for i in 0..count {
+            let x = intersections[i];
+            if unique_count == 0 || (x - intersections[unique_count - 1]).abs() > 1e-5 {
+                intersections[unique_count] = x;
+                unique_count += 1;
+            }
+        }
+
+        let left_x = intersections[0];
+        let right_x = intersections[unique_count - 1];
+        let first_x = ((left_x - 0.5).ceil() as i32).max(0);
+        let last_x = ((right_x - 0.5).floor() as i32).min(width as i32 - 1);
+        if first_x > last_x {
+            continue;
+        }
+
+        let first_center_x = first_x as f32 + 0.5;
+        let mut w0 = ((p1.x - first_center_x) * (p2.y - scan_y)
+            - (p1.y - scan_y) * (p2.x - first_center_x))
+            * inv_area;
+        let mut w1 = ((p2.x - first_center_x) * (p0.y - scan_y)
+            - (p2.y - scan_y) * (p0.x - first_center_x))
+            * inv_area;
+
+        for x in first_x..=last_x {
+            let w2 = 1.0 - w0 - w1;
+            let color = a.color * w0 + b.color * w1 + c.color * w2;
+            let object_position = a.position * w0 + b.position * w1 + c.position * w2;
+            let normal = (a.normal * w0 + b.normal * w1 + c.normal * w2).normalize();
+            let depth = p0.z * w0 + p1.z * w1 + p2.z * w2;
+            visit(Fragment::new(
+                x as f32,
+                y as f32,
+                color,
+                depth,
+                object_position,
+                normal,
+                1.0,
+            ));
+            w0 += dw0_dx;
+            w1 += dw1_dx;
+        }
+    }
+}

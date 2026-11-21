@@ -73,10 +73,11 @@ fn warp_into_vortex(position: Vector3, center: Vector3) -> Vector3 {
 
 pub fn shade(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     let p = fragment.object_position;
-    let geometric_normal = fragment.normal.normalize();
+    // Las normales se normalizan una vez al interpolarlas en el rasterizador.
+    let geometric_normal = fragment.normal;
     let n = geometric_normal;
     if uniforms.planet_kind == PlanetKind::Ship {
-        let sun_direction = Vector3::new(-0.55, 0.32, 0.77).normalize();
+        let sun_direction = Vector3::new(-0.550606, 0.320352, 0.770848);
         let diffuse = (n.dot(sun_direction)).max(0.0);
         let model = uniforms.model_matrix;
         let world_position = Vector3::new(
@@ -84,12 +85,14 @@ pub fn shade(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
             model.m1 * p.x + model.m5 * p.y + model.m9 * p.z + model.m13,
             model.m2 * p.x + model.m6 * p.y + model.m10 * p.z + model.m14,
         );
-        let rim = (1.0 - n.dot((uniforms.camera_position - world_position).normalize()).max(0.0))
-            .powf(2.0);
+        let rim = (1.0
+            - n.dot((uniforms.camera_position - world_position).normalize())
+                .max(0.0))
+        .powf(2.0);
         return fragment.color * (0.28 + diffuse * 0.72) + Vector3::new(0.05, 0.32, 0.48) * rim;
     }
     // Luz direccional fija: el terminador divide claramente ambos hemisferios.
-    let sun_direction = Vector3::new(-0.55, 0.32, 0.77).normalize();
+    let sun_direction = Vector3::new(-0.550606, 0.320352, 0.770848);
     let sun_facing = n.dot(sun_direction);
     let diffuse = sun_facing.max(0.0);
     let night = 1.0 - smoothstep(-0.12, 0.12, sun_facing);
@@ -127,15 +130,23 @@ pub fn shade(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     // Luces agrupadas en tierra firme y visibles únicamente en el hemisferio nocturno.
     let land_mask = smoothstep(0.46, 0.54, height);
     let ocean_mask = 1.0 - land_mask;
-    let city_regions = smoothstep(0.53, 0.72, fbm(p * 18.0 + Vector3::new(7.0, 2.0, 11.0)));
-    let city_lights = smoothstep(0.60, 0.78, noise(p * 72.0 + Vector3::new(13.0, 5.0, 3.0)));
-    let lights = land_mask * city_regions * city_lights * night;
+    let lights = if night > 0.001 && land_mask > 0.001 {
+        let city_regions = smoothstep(0.53, 0.72, fbm(p * 18.0 + Vector3::new(7.0, 2.0, 11.0)));
+        let city_lights = smoothstep(0.60, 0.78, noise(p * 72.0 + Vector3::new(13.0, 5.0, 3.0)));
+        land_mask * city_regions * city_lights * night
+    } else {
+        0.0
+    };
 
     // Proyectar la máscara de nubes hacia el suelo siguiendo la dirección de la luz.
     let sun_tangent = sun_direction - n * sun_facing;
-    let shadow_offset = sun_tangent * (0.08 / sun_facing.max(0.25));
-    let shadow_clouds = cloud_mask(p + shadow_offset, uniforms);
     let shadow_daylight = smoothstep(0.05, 0.3, sun_facing);
+    let shadow_clouds = if uniforms.cloud_coverage > 0.0 && shadow_daylight > 0.0 {
+        let shadow_offset = sun_tangent * (0.08 / sun_facing.max(0.25));
+        cloud_mask(p + shadow_offset, uniforms)
+    } else {
+        0.0
+    };
     let direct_light = diffuse * (1.0 - shadow_clouds * shadow_daylight * 0.58);
 
     let surface_color = base * (0.035 + direct_light * 0.965)
@@ -144,9 +155,12 @@ pub fn shade(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
         + Vector3::new(0.08, 0.16, 0.3) * (rim * 0.35);
 
     // Las nubes usan un desplazamiento propio y se desplazan sobre la superficie fija.
-    let clouds = cloud_mask(p, uniforms);
+    let cloud_opacity = if uniforms.cloud_coverage > 0.0 {
+        cloud_mask(p, uniforms) * 0.78
+    } else {
+        0.0
+    };
     let cloud_color = Vector3::new(0.82, 0.87, 0.94) * (0.18 + diffuse * 0.82);
-    let cloud_opacity = clouds * 0.78;
 
     mix(surface_color, cloud_color, cloud_opacity)
 }
@@ -213,7 +227,7 @@ fn shade_gas_giant(
     let storm_color = Vector3::new(0.369, 0.369, 0.388);
     color = mix(color, storm_color, storm * 0.9);
 
-    let sun_direction = Vector3::new(-0.55, 0.32, 0.77).normalize();
+    let sun_direction = Vector3::new(-0.550606, 0.320352, 0.770848);
     let half_vector = (sun_direction + view).normalize();
     let highlight = n.dot(half_vector).max(0.0);
     let highlight2 = highlight * highlight;

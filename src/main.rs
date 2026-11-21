@@ -17,9 +17,9 @@ use std::time::Instant;
 
 use crate::framebuffer::Framebuffer;
 use crate::primitive::primitive_assembly;
-use crate::rasterizer::{rasterize, rasterize_each};
+use crate::rasterizer::rasterize;
 use crate::shaders::vertex_shader;
-use crate::triangle::TriangleMode;
+use crate::triangle::{triangle_each_scanline, TriangleMode};
 use crate::vertex::Vertex;
 
 pub struct Uniforms {
@@ -274,43 +274,29 @@ fn render(
     vertex_array: &[Vertex],
     depth_buffer: &mut [f32],
 ) {
-    // 1. Procesamiento de vértices: aplicar la misma matriz compartida a cada vértice.
-    let processed_vertices: Vec<Vertex> = vertex_array
-        .iter()
-        .map(|vertex| vertex_shader(vertex, uniforms))
-        .collect();
-
-    // 2. Ensamblaje de primitivas: agrupar vértices procesados en triángulos.
-    let triangles = primitive_assembly(&processed_vertices);
-
-    // 3. Rasterización: reunir los fragmentos de todos los triángulos.
-    let visible_triangles: Vec<[Vertex; 3]> = triangles
-        .into_iter()
-        .filter(|triangle| {
-            triangle
-                .iter()
-                .all(|vertex| vertex.transformed_position.z > 0.0)
-        })
-        .collect();
-    // 4. Procesar fragmentos conforme se rasterizan para evitar un Vec enorme por cuadro.
-    rasterize_each(
-        &visible_triangles,
-        TriangleMode::FilledScanline,
-        |fragment| {
-            let x = fragment.position.x as i32;
-            let y = fragment.position.y as i32;
-            if x < 0 || y < 0 || x as u32 >= framebuffer.width || y as u32 >= framebuffer.height {
-                return;
-            }
-            let index = y as usize * framebuffer.width as usize + x as usize;
-            if fragment.depth >= depth_buffer[index] {
-                return;
-            }
-            depth_buffer[index] = fragment.depth;
-            let color = planet::shade(&fragment, uniforms);
-            framebuffer.point(x, y, color);
-        },
-    );
+    let width = framebuffer.width;
+    let height = framebuffer.height;
+    for vertices in vertex_array.chunks_exact(3) {
+        let a = vertex_shader(&vertices[0], uniforms);
+        let b = vertex_shader(&vertices[1], uniforms);
+        let c = vertex_shader(&vertices[2], uniforms);
+        if a.transformed_position.z > 0.0
+            && b.transformed_position.z > 0.0
+            && c.transformed_position.z > 0.0
+        {
+            triangle_each_scanline(&a, &b, &c, width, height, |fragment| {
+                let x = fragment.position.x as i32;
+                let y = fragment.position.y as i32;
+                let index = y as usize * width as usize + x as usize;
+                if fragment.depth >= depth_buffer[index] {
+                    return;
+                }
+                depth_buffer[index] = fragment.depth;
+                let color = planet::shade(&fragment, uniforms);
+                framebuffer.point_unchecked(x, y, color);
+            });
+        }
+    }
 }
 
 fn ship_forward(yaw: f32, pitch: f32) -> Vector3 {
