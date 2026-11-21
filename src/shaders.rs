@@ -37,8 +37,8 @@ pub fn vertex_shader(vertex: &Vertex, uniforms: &Uniforms) -> Vertex {
 
     let world = Vector3::new(transformed.x, transformed.y, transformed.z);
     let forward = (uniforms.camera_target - uniforms.camera_position).normalize();
-    let right = forward.cross(Vector3::new(0.0, 1.0, 0.0)).normalize();
-    let up = right.cross(forward).normalize();
+    let right = uniforms.camera_right.normalize();
+    let up = forward.cross(right).normalize();
     let relative = world - uniforms.camera_position;
     let depth = relative.dot(forward);
     let safe_depth = depth.max(0.001);
