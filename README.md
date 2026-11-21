@@ -21,7 +21,10 @@ La ventana se centra en el monitor actual y ocupa el 70% de su ancho y el 70% de
 ## Sistema solar y controles
 
 - La estrella está en el origen. Después aparecen el planeta rocoso, el gigante gaseoso, el planeta anillado, el urbano y el boscoso.
+- Los planetas recorren órbitas circulares compactas con distintas fases y velocidades, repartidas alrededor del sol.
 - Cada cuerpo rota sobre su eje y ejerce gravedad dentro de su radio de influencia; la nave colisiona con sus superficies.
+- La luz de la estrella central ilumina los cuerpos y la nave desde el origen, con iluminación ambiental para conservar detalle en las sombras.
+- El cielo usa una skybox procedural con nubes rosadas, azules y verdes y estrellas blancas en posiciones fijas. La vista cambia al girar la nave.
 - La resolución adaptativa se aplica a toda la escena.
 - `Page Up` / `Page Down`: aumenta o reduce la cobertura de nubes.
 - Flechas izquierda/derecha: gira la nave.
@@ -96,7 +99,7 @@ La cámara sigue la nave desde atrás. La aceleración conserva la inercia y dis
 
 ## Animación
 
-Los patrones de la estrella, las bandas del gigante gaseoso, el vórtice y las nubes están animados. Todas estas animaciones pueden verse en el siguiente video:
+Los planetas orbitan el sol y también rotan sobre su eje. Los patrones de la estrella, las bandas del gigante gaseoso, el vórtice y las nubes están animados. Todas estas animaciones pueden verse en el siguiente video:
 
 ![Animación de los shaders](https://youtu.be/KcPtXhpP1kQ)
 

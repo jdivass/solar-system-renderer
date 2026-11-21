@@ -55,6 +55,10 @@ pub enum PlanetKind {
 
 struct CelestialBody {
     position: Vector3,
+    previous_position: Vector3,
+    orbit_radius: f32,
+    orbit_speed: f32,
+    orbit_phase: f32,
     scale: f32,
     rotation_speed: f32,
     gravity_radius: f32,
@@ -93,9 +97,11 @@ fn main() {
         .min(1.0);
     let base_render_width = (display_width as f32 * scale).round().max(1.0) as u32;
     let base_render_height = (display_height as f32 * scale).round().max(1.0) as u32;
+    const SKYBOX_FACE_SIZE: u32 = 512;
+    let skybox = create_nebula_skybox(SKYBOX_FACE_SIZE);
     let mut framebuffer = Framebuffer::new(base_render_width, base_render_height);
     let mut depth_buffer = vec![f32::INFINITY; (base_render_width * base_render_height) as usize];
-    framebuffer.set_background_color(Vector3::new(0.0, 0.0, 0.0));
+    framebuffer.set_background_color(Vector3::new(0.003, 0.002, 0.012));
     framebuffer.init_texture(&mut window, &thread);
 
     let mesh = object::load_obj("model/sphere.obj").expect("No se pudo cargar model/sphere.obj");
@@ -109,9 +115,13 @@ fn main() {
         .iter()
         .map(|vertex| vertex.length())
         .fold(0.0_f32, f32::max);
-    let celestial_bodies = [
+    let mut celestial_bodies = [
         CelestialBody {
             position: Vector3::zero(),
+            previous_position: Vector3::zero(),
+            orbit_radius: 0.0,
+            orbit_speed: 0.0,
+            orbit_phase: 0.0,
             scale: 4.5,
             rotation_speed: 0.035,
             gravity_radius: 18.0,
@@ -119,7 +129,11 @@ fn main() {
             kind: PlanetKind::Star,
         },
         CelestialBody {
-            position: Vector3::new(18.0, 0.0, 12.0),
+            position: orbit_position(10.5, 0.0),
+            previous_position: orbit_position(10.5, 0.0),
+            orbit_radius: 10.5,
+            orbit_speed: 0.22,
+            orbit_phase: 0.0,
             scale: 1.5,
             rotation_speed: 0.06,
             gravity_radius: 12.0,
@@ -127,7 +141,11 @@ fn main() {
             kind: PlanetKind::Rocky,
         },
         CelestialBody {
-            position: Vector3::new(36.0, 0.0, 32.0),
+            position: orbit_position(17.5, 2.1),
+            previous_position: orbit_position(17.5, 2.1),
+            orbit_radius: 17.5,
+            orbit_speed: 0.13,
+            orbit_phase: 2.1,
             scale: 2.8,
             rotation_speed: 0.035,
             gravity_radius: 18.0,
@@ -135,7 +153,11 @@ fn main() {
             kind: PlanetKind::GasGiant,
         },
         CelestialBody {
-            position: Vector3::new(54.0, 0.0, 66.0),
+            position: orbit_position(25.0, 4.15),
+            previous_position: orbit_position(25.0, 4.15),
+            orbit_radius: 25.0,
+            orbit_speed: 0.095,
+            orbit_phase: 4.15,
             scale: 1.8,
             rotation_speed: 0.045,
             gravity_radius: 13.0,
@@ -143,7 +165,11 @@ fn main() {
             kind: PlanetKind::Ringed,
         },
         CelestialBody {
-            position: Vector3::new(69.0, 0.0, 94.0),
+            position: orbit_position(32.0, 0.85),
+            previous_position: orbit_position(32.0, 0.85),
+            orbit_radius: 32.0,
+            orbit_speed: 0.073,
+            orbit_phase: 0.85,
             scale: 1.6,
             rotation_speed: 0.055,
             gravity_radius: 12.0,
@@ -151,7 +177,11 @@ fn main() {
             kind: PlanetKind::City,
         },
         CelestialBody {
-            position: Vector3::new(81.0, 0.0, 124.0),
+            position: orbit_position(39.0, 3.05),
+            previous_position: orbit_position(39.0, 3.05),
+            orbit_radius: 39.0,
+            orbit_speed: 0.058,
+            orbit_phase: 3.05,
             scale: 1.7,
             rotation_speed: 0.04,
             gravity_radius: 13.0,
@@ -187,6 +217,14 @@ fn main() {
 
     while !window.window_should_close() {
         let dt = window.get_frame_time().min(0.05);
+        let time = start_time.elapsed().as_secs_f32();
+        for body in celestial_bodies.iter_mut().skip(1) {
+            body.previous_position = body.position;
+            body.position = orbit_position(
+                body.orbit_radius,
+                body.orbit_phase + time * body.orbit_speed,
+            );
+        }
         if window.is_key_down(KeyboardKey::KEY_PAGE_UP) {
             cloud_coverage = (cloud_coverage + dt * 0.35).clamp(0.0, 1.0);
         }
@@ -253,7 +291,7 @@ fn main() {
         let mut collision_start = previous_ship_position;
         for body in &celestial_bodies {
             if let Some(relative_contact) = resolve_sphere_collision(
-                collision_start - body.position,
+                collision_start - body.previous_position,
                 ship_position - body.position,
                 planet_radius * body.scale,
                 &ship_mesh.vertices,
@@ -288,10 +326,12 @@ fn main() {
         } else {
             RENDER_SCALES.len() - 1
         };
-        let time = start_time.elapsed().as_secs_f32();
         let render_started = Instant::now();
         depth_buffer.fill(f32::INFINITY);
         framebuffer.clear();
+        let camera_forward = (camera_target - camera_position).normalize();
+        let camera_up = camera_forward.cross(right).normalize();
+        framebuffer.draw_skybox(&skybox, SKYBOX_FACE_SIZE, camera_forward, right, camera_up);
         for body in &celestial_bodies {
             let body_uniforms = Uniforms {
                 model_matrix: body_model_matrix(
@@ -480,6 +520,83 @@ fn ship_forward(yaw: f32, pitch: f32) -> Vector3 {
         pitch.sin(),
         yaw.cos() * pitch.cos(),
     )
+}
+
+fn create_nebula_skybox(face_size: u32) -> Vec<Vec<u8>> {
+    (0..6)
+        .map(|face| {
+            let mut pixels = vec![0_u8; (face_size * face_size * 4) as usize];
+            for y in 0..face_size {
+                let v = 1.0 - 2.0 * (y as f32 + 0.5) / face_size as f32;
+                for x in 0..face_size {
+                    let u = 2.0 * (x as f32 + 0.5) / face_size as f32 - 1.0;
+                    let direction = skybox_face_direction(face, u, v).normalize();
+                    let color = nebula_sky_color(direction);
+                    let index = ((y * face_size + x) * 4) as usize;
+                    pixels[index] = (color.x.clamp(0.0, 1.0) * 255.0) as u8;
+                    pixels[index + 1] = (color.y.clamp(0.0, 1.0) * 255.0) as u8;
+                    pixels[index + 2] = (color.z.clamp(0.0, 1.0) * 255.0) as u8;
+                    pixels[index + 3] = 255;
+                }
+            }
+            pixels
+        })
+        .collect()
+}
+
+fn skybox_face_direction(face: usize, u: f32, v: f32) -> Vector3 {
+    match face {
+        0 => Vector3::new(1.0, v, -u),
+        1 => Vector3::new(-1.0, v, u),
+        2 => Vector3::new(u, 1.0, -v),
+        3 => Vector3::new(u, -1.0, v),
+        4 => Vector3::new(u, v, 1.0),
+        _ => Vector3::new(-u, v, -1.0),
+    }
+}
+
+fn nebula_sky_color(direction: Vector3) -> Vector3 {
+    let galactic_axis = Vector3::new(0.23, 0.88, -0.42).normalize();
+    let latitude = direction.dot(galactic_axis);
+    let clouds = (direction.x * 12.0 + direction.z * 7.0).sin()
+        * (direction.y * 10.0 - direction.x * 4.0).cos();
+    let density = 0.4 + clouds * 0.24;
+    let pink = (-latitude * latitude * 34.0).exp() * density;
+    let blue_latitude = latitude - 0.16 * (direction.x * 3.0 + direction.z * 2.0).sin();
+    let blue = (-blue_latitude * blue_latitude * 48.0).exp() * (0.35 + clouds * 0.22);
+    let green_latitude = latitude + 0.18 * (direction.z * 2.5 - direction.x * 2.0).sin();
+    let green = (-green_latitude * green_latitude * 58.0).exp() * (0.3 + clouds * 0.2);
+    let mut color = Vector3::new(0.003, 0.004, 0.015)
+        + Vector3::new(0.4, 0.045, 0.19) * pink
+        + Vector3::new(0.035, 0.12, 0.38) * blue
+        + Vector3::new(0.025, 0.22, 0.11) * green;
+
+    let grid = 48.0;
+    let cell_x = (direction.x * grid).floor() as i32;
+    let cell_y = (direction.y * grid).floor() as i32;
+    let cell_z = (direction.z * grid).floor() as i32;
+    let mut hash = (cell_x as u32).wrapping_mul(0x8da6_b343)
+        ^ (cell_y as u32).wrapping_mul(0xd816_3841)
+        ^ (cell_z as u32).wrapping_mul(0xcb1a_b31f);
+    hash ^= hash >> 13;
+    hash = hash.wrapping_mul(0x85eb_ca6b);
+    hash ^= hash >> 16;
+    if hash % 112 == 0 {
+        let star_direction = Vector3::new(
+            (cell_x as f32 + 0.5) / grid,
+            (cell_y as f32 + 0.5) / grid,
+            (cell_z as f32 + 0.5) / grid,
+        )
+        .normalize();
+        let alignment = direction.dot(star_direction).clamp(-1.0, 1.0);
+        let star = (1.0 - (1.0 - alignment) / 0.000035).clamp(0.0, 1.0);
+        color += Vector3::new(0.95, 0.96, 1.0) * star;
+    }
+    color
+}
+
+fn orbit_position(radius: f32, angle: f32) -> Vector3 {
+    Vector3::new(radius * angle.cos(), 0.0, radius * angle.sin())
 }
 
 fn resolve_sphere_collision(

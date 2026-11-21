@@ -58,6 +58,71 @@ impl Framebuffer {
         self.pixels[index + 3] = 255;
     }
 
+    pub(crate) fn draw_skybox(
+        &mut self,
+        faces: &[Vec<u8>],
+        face_size: u32,
+        forward: Vector3,
+        right: Vector3,
+        up: Vector3,
+    ) {
+        let aspect = self.width as f32 / self.height.max(1) as f32;
+        let half_fov_tangent = (60.0_f32.to_radians() * 0.5).tan();
+        for y in 0..self.height {
+            let ndc_y = 1.0 - 2.0 * (y as f32 + 0.5) / self.height as f32;
+            let vertical = up * (ndc_y * half_fov_tangent);
+            for x in 0..self.width {
+                let ndc_x = 2.0 * (x as f32 + 0.5) / self.width as f32 - 1.0;
+                let horizontal = right * (ndc_x * aspect * half_fov_tangent);
+                let ray = forward + horizontal + vertical;
+                let ax = ray.x.abs();
+                let ay = ray.y.abs();
+                let az = ray.z.abs();
+                let (face, u, v) = if ax >= ay && ax >= az {
+                    if ray.x >= 0.0 {
+                        (0, -ray.z / ax, ray.y / ax)
+                    } else {
+                        (1, ray.z / ax, ray.y / ax)
+                    }
+                } else if ay >= az {
+                    if ray.y >= 0.0 {
+                        (2, ray.x / ay, -ray.z / ay)
+                    } else {
+                        (3, ray.x / ay, ray.z / ay)
+                    }
+                } else if ray.z >= 0.0 {
+                    (4, ray.x / az, ray.y / az)
+                } else {
+                    (5, -ray.x / az, ray.y / az)
+                };
+                let texture_x =
+                    ((u + 1.0) * 0.5 * (face_size - 1) as f32).clamp(0.0, (face_size - 1) as f32);
+                let texture_y =
+                    ((1.0 - v) * 0.5 * (face_size - 1) as f32).clamp(0.0, (face_size - 1) as f32);
+                let x0 = texture_x.floor() as u32;
+                let y0 = texture_y.floor() as u32;
+                let x1 = (x0 + 1).min(face_size - 1);
+                let y1 = (y0 + 1).min(face_size - 1);
+                let fx = texture_x - x0 as f32;
+                let fy = texture_y - y0 as f32;
+                let source = &faces[face];
+                let top_left = ((y0 * face_size + x0) * 4) as usize;
+                let top_right = ((y0 * face_size + x1) * 4) as usize;
+                let bottom_left = ((y1 * face_size + x0) * 4) as usize;
+                let bottom_right = ((y1 * face_size + x1) * 4) as usize;
+                let target_index = ((y * self.width + x) * 4) as usize;
+                for channel in 0..3 {
+                    let top = source[top_left + channel] as f32 * (1.0 - fx)
+                        + source[top_right + channel] as f32 * fx;
+                    let bottom = source[bottom_left + channel] as f32 * (1.0 - fx)
+                        + source[bottom_right + channel] as f32 * fx;
+                    self.pixels[target_index + channel] = (top * (1.0 - fy) + bottom * fy) as u8;
+                }
+                self.pixels[target_index + 3] = 255;
+            }
+        }
+    }
+
     pub fn set_background_color(&mut self, color: Vector3) {
         let to_byte = |component: f32| (component.clamp(0.0, 1.0) * 255.0) as u8;
         self.background_color =

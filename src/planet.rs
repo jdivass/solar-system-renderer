@@ -95,17 +95,16 @@ pub fn shade(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     let world_position = transform_position(model, p);
     let world_normal = transform_direction(model, geometric_normal);
     let n = world_normal.normalize();
+    let sun_direction = (-world_position).normalize();
     if uniforms.planet_kind == PlanetKind::Ship {
-        let sun_direction = Vector3::new(-0.550606, 0.320352, 0.770848);
         let diffuse = (n.dot(sun_direction)).max(0.0);
         let rim = (1.0
             - n.dot((uniforms.camera_position - world_position).normalize())
                 .max(0.0))
         .powf(2.0);
-        return fragment.color * (0.28 + diffuse * 0.72) + Vector3::new(0.05, 0.32, 0.48) * rim;
+        return fragment.color * (0.4 + diffuse * 1.05) + Vector3::new(0.05, 0.32, 0.48) * rim;
     }
-    // Luz direccional fija: el terminador divide claramente ambos hemisferios.
-    let sun_direction = Vector3::new(-0.550606, 0.320352, 0.770848);
+    // La luz apunta desde cada superficie hacia la estrella situada en el origen.
     let sun_facing = n.dot(sun_direction);
     let diffuse = sun_facing.max(0.0);
     let night = 1.0 - smoothstep(-0.12, 0.12, sun_facing);
@@ -114,13 +113,29 @@ pub fn shade(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
         return shade_star(p, n, view, uniforms);
     }
     if uniforms.planet_kind == PlanetKind::GasGiant {
-        return shade_gas_giant(p, geometric_normal, n, diffuse, view, uniforms);
+        return shade_gas_giant(
+            p,
+            geometric_normal,
+            n,
+            diffuse,
+            view,
+            sun_direction,
+            uniforms,
+        );
     }
     if uniforms.planet_kind == PlanetKind::Ringed {
         if p.length() > 1.05 {
-            return fragment.color * (0.12 + diffuse * 0.88);
+            return fragment.color * (0.2 + diffuse * 1.1);
         }
-        return shade_jupiter(p, geometric_normal, n, diffuse, view, uniforms);
+        return shade_jupiter(
+            p,
+            geometric_normal,
+            n,
+            diffuse,
+            view,
+            sun_direction,
+            uniforms,
+        );
     }
     if uniforms.planet_kind == PlanetKind::City {
         return shade_city(p, n, diffuse, night, view);
@@ -172,9 +187,9 @@ pub fn shade(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     } else {
         0.0
     };
-    let direct_light = diffuse * (1.0 - shadow_clouds * shadow_daylight * 0.58);
+    let direct_light = diffuse * 1.4 * (1.0 - shadow_clouds * shadow_daylight * 0.58);
 
-    let surface_color = base * (0.035 + direct_light * 0.965)
+    let surface_color = base * (0.14 + direct_light * 0.96)
         + Vector3::new(0.82, 0.9, 1.0) * (specular * ocean_mask * direct_light * 0.9)
         + Vector3::new(1.0, 0.48, 0.12) * (lights * 1.6)
         + Vector3::new(0.08, 0.16, 0.3) * (rim * 0.35);
@@ -185,7 +200,7 @@ pub fn shade(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     } else {
         0.0
     };
-    let cloud_color = Vector3::new(0.82, 0.87, 0.94) * (0.18 + diffuse * 0.82);
+    let cloud_color = Vector3::new(0.82, 0.87, 0.94) * (0.28 + diffuse * 1.08);
 
     mix(surface_color, cloud_color, cloud_opacity)
 }
@@ -207,7 +222,7 @@ fn shade_city(p: Vector3, _n: Vector3, diffuse: f32, _night: f32, _view: Vector3
     );
     let road_network = Vector3::new(0.025, 0.035, 0.045) * (avenues * 0.55);
     let facade_detail = Vector3::new(0.08, 0.09, 0.1) * (windows * towers * 0.12);
-    (metal - road_network + facade_detail) * (0.08 + diffuse * 0.92)
+    (metal - road_network + facade_detail) * (0.18 + diffuse * 1.25)
 }
 
 fn shade_forest(p: Vector3, _n: Vector3, diffuse: f32) -> Vector3 {
@@ -222,7 +237,7 @@ fn shade_forest(p: Vector3, _n: Vector3, diffuse: f32) -> Vector3 {
     let land = mix(forest, Vector3::new(0.46, 0.34, 0.16), clearings * 0.75);
     let lakes = 1.0 - smoothstep(0.28, 0.38, canopy);
     let surface = mix(land, Vector3::new(0.015, 0.12, 0.2), lakes);
-    surface * (0.035 + diffuse * 0.965)
+    surface * (0.14 + diffuse * 1.25)
 }
 
 fn shade_jupiter(
@@ -231,6 +246,7 @@ fn shade_jupiter(
     n: Vector3,
     diffuse: f32,
     view: Vector3,
+    sun_direction: Vector3,
     uniforms: &Uniforms,
 ) -> Vector3 {
     let drift = Vector3::new(uniforms.time * 0.018, 0.0, uniforms.time * 0.009);
@@ -263,9 +279,9 @@ fn shade_jupiter(
     );
     color = mix(color, Vector3::new(0.8, 0.38, 0.18), spot_rim * 0.55);
 
-    let half_vector = (Vector3::new(-0.550606, 0.320352, 0.770848) + view).normalize();
+    let half_vector = (sun_direction + view).normalize();
     let specular = n.dot(half_vector).max(0.0).powf(24.0);
-    color * (0.055 + diffuse * 0.945) + Vector3::new(1.0, 0.78, 0.52) * (specular * diffuse * 0.22)
+    color * (0.14 + diffuse * 1.28) + Vector3::new(1.0, 0.78, 0.52) * (specular * diffuse * 0.3)
 }
 
 fn shade_star(p: Vector3, n: Vector3, view: Vector3, uniforms: &Uniforms) -> Vector3 {
@@ -298,6 +314,7 @@ fn shade_gas_giant(
     n: Vector3,
     diffuse: f32,
     view: Vector3,
+    sun_direction: Vector3,
     uniforms: &Uniforms,
 ) -> Vector3 {
     let drift = Vector3::new(uniforms.time * 0.035, 0.0, uniforms.time * 0.012);
@@ -330,7 +347,6 @@ fn shade_gas_giant(
     let storm_color = Vector3::new(0.369, 0.369, 0.388);
     color = mix(color, storm_color, storm * 0.9);
 
-    let sun_direction = Vector3::new(-0.550606, 0.320352, 0.770848);
     let half_vector = (sun_direction + view).normalize();
     let highlight = n.dot(half_vector).max(0.0);
     let highlight2 = highlight * highlight;
@@ -341,7 +357,7 @@ fn shade_gas_giant(
     let rim_factor = 1.0 - n.dot(view).max(0.0);
     let rim = rim_factor * rim_factor * rim_factor;
 
-    color * (0.035 + diffuse * 0.965)
+    color * (0.14 + diffuse * 1.28)
         + Vector3::new(1.0, 0.78, 0.5) * (specular * diffuse * 0.35)
         + Vector3::new(0.12, 0.2, 0.34) * (rim * 0.35)
 }
