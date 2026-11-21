@@ -94,11 +94,7 @@ pub fn shade(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     let model = uniforms.model_matrix;
     let world_position = transform_position(model, p);
     let world_normal = transform_direction(model, geometric_normal);
-    let n = if uniforms.planet_kind == PlanetKind::Ship {
-        world_normal.normalize()
-    } else {
-        world_normal
-    };
+    let n = world_normal.normalize();
     if uniforms.planet_kind == PlanetKind::Ship {
         let sun_direction = Vector3::new(-0.550606, 0.320352, 0.770848);
         let diffuse = (n.dot(sun_direction)).max(0.0);

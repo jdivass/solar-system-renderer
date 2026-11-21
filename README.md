@@ -18,12 +18,12 @@ cargo run --release
 
 La ventana se centra en el monitor actual y ocupa el 70% de su ancho y el 70% de su alto. El renderer limita su resolución interna a 1280×720 y escala la imagen para ajustarla a la ventana. Si el renderizado tarda más de 17 ms durante 8 cuadros seguidos, reduce la resolución interna; la aumenta gradualmente tras 120 cuadros por debajo de 12 ms. La resolución se ajusta en cinco niveles, hasta el 45% del tamaño máximo.
 
-## Selección y controles
+## Sistema solar y controles
 
-- `1`: planeta rocoso.
-- `2`: gigante gaseoso.
-- `3`: estrella.
-- `Page Up` / `Page Down`: aumenta o reduce la cobertura de nubes del planeta rocoso.
+- La estrella está en el origen; el planeta rocoso y el gigante gaseoso aparecen a distancias mayores.
+- Cada cuerpo rota sobre su eje y ejerce gravedad dentro de su radio de influencia; la nave colisiona con sus superficies.
+- La resolución adaptativa se aplica a toda la escena.
+- `Page Up` / `Page Down`: aumenta o reduce la cobertura de nubes.
 - Flechas izquierda/derecha: gira la nave.
 - Flechas arriba/abajo: inclina el morro.
 - `W` / `S`: acelera hacia delante o hacia atrás.
@@ -80,7 +80,7 @@ Parámetros principales en `shade_star`, dentro de `src/planet.rs`:
 
 ## Navegación
 
-La cámara sigue la nave desde atrás. La aceleración conserva la inercia y disminuye gradualmente al soltar `W` o `S`. La nave puede girar, inclinarse, desplazarse lateralmente y cambiar de altura. Al entrar a 14 unidades del planeta, su gravedad atrae la nave con más fuerza a medida que se acerca a la superficie.
+La cámara sigue la nave desde atrás. La aceleración conserva la inercia y disminuye gradualmente al soltar `W` o `S`. La nave puede girar, inclinarse, desplazarse lateralmente y cambiar de altura. La gravedad se calcula por separado para cada cuerpo dentro de su radio de influencia y las colisiones mantienen la nave fuera de cada superficie.
 
 ## Animación
 

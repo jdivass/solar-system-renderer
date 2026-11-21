@@ -23,8 +23,7 @@ use crate::triangle::{triangle_each_scanline, TriangleMode};
 use crate::vertex::Vertex;
 
 const SHIP_SCALE: f32 = 0.12;
-const GRAVITY_INFLUENCE_RADIUS: f32 = 14.0;
-const PLANET_GRAVITY: f32 = 5.0;
+const GRAVITY_PER_SIZE: f32 = 0.4;
 const RENDER_SCALES: [f32; 5] = [1.0, 0.85, 0.7, 0.55, 0.45];
 const SLOW_FRAME_LIMIT: Duration = Duration::from_millis(17);
 const FAST_FRAME_LIMIT: Duration = Duration::from_millis(12);
@@ -49,6 +48,15 @@ pub enum PlanetKind {
     GasGiant,
     Star,
     Ship,
+}
+
+struct CelestialBody {
+    position: Vector3,
+    scale: f32,
+    rotation_speed: f32,
+    gravity_radius: f32,
+    gravity_strength: f32,
+    kind: PlanetKind,
 }
 
 fn main() {
@@ -98,6 +106,32 @@ fn main() {
         .iter()
         .map(|vertex| vertex.length())
         .fold(0.0_f32, f32::max);
+    let celestial_bodies = [
+        CelestialBody {
+            position: Vector3::zero(),
+            scale: 4.5,
+            rotation_speed: 0.035,
+            gravity_radius: 32.0,
+            gravity_strength: 4.5 * GRAVITY_PER_SIZE,
+            kind: PlanetKind::Star,
+        },
+        CelestialBody {
+            position: Vector3::new(18.0, 0.0, 12.0),
+            scale: 1.5,
+            rotation_speed: 0.06,
+            gravity_radius: 12.0,
+            gravity_strength: 1.5 * GRAVITY_PER_SIZE,
+            kind: PlanetKind::Rocky,
+        },
+        CelestialBody {
+            position: Vector3::new(36.0, 0.0, 32.0),
+            scale: 2.8,
+            rotation_speed: 0.035,
+            gravity_radius: 18.0,
+            gravity_strength: 2.8 * GRAVITY_PER_SIZE,
+            kind: PlanetKind::GasGiant,
+        },
+    ];
     let ship_mesh = object::load_obj("model/Nave.obj").expect("No se pudo cargar model/Nave.obj");
     let ship_vertices: Vec<Vertex> = ship_mesh
         .indices
@@ -112,29 +146,19 @@ fn main() {
             Vertex::new_with_color(position, wing_color)
         })
         .collect();
-    let mut ship_position = Vector3::new(0.0, 0.0, -8.0);
+    let mut ship_position = Vector3::new(0.0, 0.0, -18.0);
     let mut ship_yaw = 0.0_f32;
     let mut ship_pitch = 0.0_f32;
     let mut ship_speed = 0.0_f32;
     let mut gravity_velocity = Vector3::zero();
     let start_time = Instant::now();
     let mut cloud_coverage = 0.55_f32;
-    let mut planet_kind = PlanetKind::Rocky;
     let mut render_scale_index = 0;
     let mut slow_frames = 0;
     let mut fast_frames = 0;
 
     while !window.window_should_close() {
         let dt = window.get_frame_time().min(0.05);
-        if window.is_key_pressed(KeyboardKey::KEY_ONE) {
-            planet_kind = PlanetKind::Rocky;
-        }
-        if window.is_key_pressed(KeyboardKey::KEY_TWO) {
-            planet_kind = PlanetKind::GasGiant;
-        }
-        if window.is_key_pressed(KeyboardKey::KEY_THREE) {
-            planet_kind = PlanetKind::Star;
-        }
         if window.is_key_down(KeyboardKey::KEY_PAGE_UP) {
             cloud_coverage = (cloud_coverage + dt * 0.35).clamp(0.0, 1.0);
         }
@@ -186,24 +210,35 @@ fn main() {
             ship_position.y -= 5.0 * dt;
         }
         ship_position += forward * (ship_speed * dt);
-        let distance_to_planet = ship_position.length();
-        if distance_to_planet < GRAVITY_INFLUENCE_RADIUS && distance_to_planet > 1e-4 {
-            let gravity_direction = -ship_position * (1.0 / distance_to_planet);
-            let gravity_falloff = 1.0 - distance_to_planet / GRAVITY_INFLUENCE_RADIUS;
-            gravity_velocity += gravity_direction * (PLANET_GRAVITY * gravity_falloff * dt);
+        let mut gravity_acceleration = Vector3::zero();
+        for body in &celestial_bodies {
+            let toward_body = body.position - ship_position;
+            let distance = toward_body.length();
+            if distance < body.gravity_radius && distance > 1e-4 {
+                let falloff = 1.0 - distance / body.gravity_radius;
+                gravity_acceleration += toward_body * (body.gravity_strength * falloff / distance);
+            }
         }
+        gravity_velocity += gravity_acceleration * dt;
         ship_position += gravity_velocity * dt;
-        if let Some(contact_position) = resolve_sphere_collision(
-            previous_ship_position,
-            ship_position,
-            planet_radius,
-            &ship_mesh.vertices,
-            ship_yaw,
-            ship_pitch,
-        ) {
-            ship_position = contact_position;
+        let mut collision_normal = None;
+        let mut collision_start = previous_ship_position;
+        for body in &celestial_bodies {
+            if let Some(relative_contact) = resolve_sphere_collision(
+                collision_start - body.position,
+                ship_position - body.position,
+                planet_radius * body.scale,
+                &ship_mesh.vertices,
+                ship_yaw,
+                ship_pitch,
+            ) {
+                ship_position = body.position + relative_contact;
+                collision_start = ship_position;
+                collision_normal = Some(relative_contact.normalize());
+            }
+        }
+        if let Some(outward) = collision_normal {
             ship_speed = 0.0;
-            let outward = contact_position.normalize();
             let inward_gravity = gravity_velocity.dot(outward).min(0.0);
             gravity_velocity -= outward * inward_gravity;
         }
@@ -213,24 +248,30 @@ fn main() {
         let time = start_time.elapsed().as_secs_f32();
         let render_started = Instant::now();
         depth_buffer.fill(f32::INFINITY);
-        let planet_uniforms = Uniforms {
-            model_matrix: planet_rotation_matrix(time * 0.26),
-            camera_position,
-            camera_target,
-            camera_right: right,
-            screen_width: framebuffer.width as f32,
-            screen_height: framebuffer.height as f32,
-            time,
-            cloud_coverage,
-            planet_kind,
-        };
         framebuffer.clear();
-        render(
-            &mut framebuffer,
-            &planet_uniforms,
-            &vertex_array,
-            &mut depth_buffer,
-        );
+        for body in &celestial_bodies {
+            let body_uniforms = Uniforms {
+                model_matrix: body_model_matrix(
+                    body.position,
+                    body.scale,
+                    time * body.rotation_speed,
+                ),
+                camera_position,
+                camera_target,
+                camera_right: right,
+                screen_width: framebuffer.width as f32,
+                screen_height: framebuffer.height as f32,
+                time,
+                cloud_coverage,
+                planet_kind: body.kind,
+            };
+            render(
+                &mut framebuffer,
+                &body_uniforms,
+                &vertex_array,
+                &mut depth_buffer,
+            );
+        }
         let ship_uniforms = Uniforms {
             model_matrix: ship_model_matrix(ship_position, ship_yaw, ship_pitch, SHIP_SCALE),
             camera_position,
@@ -494,24 +535,24 @@ fn ship_model_matrix(position: Vector3, yaw: f32, pitch: f32, scale: f32) -> Mat
     }
 }
 
-fn planet_rotation_matrix(angle: f32) -> Matrix {
+fn body_model_matrix(position: Vector3, scale: f32, angle: f32) -> Matrix {
     let (sine, cosine) = angle.sin_cos();
     Matrix {
-        m0: cosine,
+        m0: cosine * scale,
         m1: 0.0,
-        m2: -sine,
+        m2: -sine * scale,
         m3: 0.0,
         m4: 0.0,
-        m5: 1.0,
+        m5: scale,
         m6: 0.0,
         m7: 0.0,
-        m8: sine,
+        m8: sine * scale,
         m9: 0.0,
-        m10: cosine,
+        m10: cosine * scale,
         m11: 0.0,
-        m12: 0.0,
-        m13: 0.0,
-        m14: 0.0,
+        m12: position.x,
+        m13: position.y,
+        m14: position.z,
         m15: 1.0,
     }
 }
