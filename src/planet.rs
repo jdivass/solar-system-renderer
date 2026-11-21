@@ -1,5 +1,20 @@
 use crate::{fragment::Fragment, PlanetKind, Uniforms};
 use raylib::prelude::*;
+use std::sync::LazyLock;
+
+const NOISE_TABLE_SIZE: usize = 64;
+static NOISE_TABLE: LazyLock<Box<[f32]>> = LazyLock::new(|| {
+    let mut values = vec![0.0; NOISE_TABLE_SIZE * NOISE_TABLE_SIZE * NOISE_TABLE_SIZE];
+    for z in 0..NOISE_TABLE_SIZE {
+        for y in 0..NOISE_TABLE_SIZE {
+            for x in 0..NOISE_TABLE_SIZE {
+                values[(z * NOISE_TABLE_SIZE + y) * NOISE_TABLE_SIZE + x] =
+                    hash(Vector3::new(x as f32, y as f32, z as f32));
+            }
+        }
+    }
+    values.into_boxed_slice()
+});
 
 fn mix(a: Vector3, b: Vector3, t: f32) -> Vector3 {
     a * (1.0 - t) + b * t
@@ -20,19 +35,27 @@ fn hash(p: Vector3) -> f32 {
     (value as f32 / u32::MAX as f32) * 2.0 - 1.0
 }
 fn noise(p: Vector3) -> f32 {
-    let i = Vector3::new(p.x.floor(), p.y.floor(), p.z.floor());
+    let ix = p.x.floor() as i32;
+    let iy = p.y.floor() as i32;
+    let iz = p.z.floor() as i32;
     let f = Vector3::new(p.x.fract(), p.y.fract(), p.z.fract());
     let u = Vector3::new(
         f.x * f.x * (3.0 - 2.0 * f.x),
         f.y * f.y * (3.0 - 2.0 * f.y),
         f.z * f.z * (3.0 - 2.0 * f.z),
     );
-    let h = |x: f32, y: f32, z: f32| hash(i + Vector3::new(x, y, z));
+    let values = &*NOISE_TABLE;
+    let h = |x: i32, y: i32, z: i32| {
+        let x = ((ix + x) as usize) & (NOISE_TABLE_SIZE - 1);
+        let y = ((iy + y) as usize) & (NOISE_TABLE_SIZE - 1);
+        let z = ((iz + z) as usize) & (NOISE_TABLE_SIZE - 1);
+        values[(z * NOISE_TABLE_SIZE + y) * NOISE_TABLE_SIZE + x]
+    };
     let lerp = |a: f32, b: f32, t: f32| a * (1.0 - t) + b * t;
-    let x00 = lerp(h(0.0, 0.0, 0.0), h(1.0, 0.0, 0.0), u.x);
-    let x10 = lerp(h(0.0, 1.0, 0.0), h(1.0, 1.0, 0.0), u.x);
-    let x01 = lerp(h(0.0, 0.0, 1.0), h(1.0, 0.0, 1.0), u.x);
-    let x11 = lerp(h(0.0, 1.0, 1.0), h(1.0, 1.0, 1.0), u.x);
+    let x00 = lerp(h(0, 0, 0), h(1, 0, 0), u.x);
+    let x10 = lerp(h(0, 1, 0), h(1, 1, 0), u.x);
+    let x01 = lerp(h(0, 0, 1), h(1, 0, 1), u.x);
+    let x11 = lerp(h(0, 1, 1), h(1, 1, 1), u.x);
     lerp(lerp(x00, x10, u.y), lerp(x01, x11, u.y), u.z)
 }
 fn fbm(mut p: Vector3) -> f32 {
@@ -144,7 +167,6 @@ pub fn shade(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     }
     if uniforms.planet_kind == PlanetKind::GasGiant {
         return shade_gas_giant(
-            p,
             geometric_normal,
             n,
             diffuse,
@@ -377,7 +399,6 @@ fn shade_star(p: Vector3, n: Vector3, view: Vector3, uniforms: &Uniforms) -> Vec
 }
 
 fn shade_gas_giant(
-    p: Vector3,
     geometric_normal: Vector3,
     n: Vector3,
     diffuse: f32,
@@ -388,13 +409,15 @@ fn shade_gas_giant(
     let drift = Vector3::new(uniforms.time * 0.035, 0.0, uniforms.time * 0.012);
     let storm_center = Vector3::new(0.24, 0.17, 0.96).normalize();
     let warped_normal = warp_into_vortex(geometric_normal, storm_center);
-    let warped_position = warped_normal * p.dot(n).max(0.0);
+    // Mantener estas coordenadas en espacio local evita que la rotación del
+    // planeta colapse partes del patrón cuando se mezcla con normales mundiales.
+    let warped_position = warped_normal;
 
     // La deformación afecta las bandas y su ruido, no solo el color de la tormenta.
     let turbulence = noise(warped_position * 6.0 + drift);
     let wave =
-        (geometric_normal.y * 58.0 + turbulence * 1.4 + uniforms.time * 0.035).sin() * 0.5 + 0.5;
-    let band = smoothstep(0.42, 0.58, wave);
+        (warped_position.y * 58.0 + turbulence * 1.4 + uniforms.time * 0.035).sin() * 0.5 + 0.5;
+    let band = smoothstep(0.34, 0.66, wave);
     let mut color = mix(
         Vector3::new(0.012, 0.16, 0.3),
         Vector3::new(0.16, 0.48, 0.72),

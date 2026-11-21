@@ -23,7 +23,7 @@ use crate::triangle::{triangle_each_scanline, TriangleMode};
 use crate::vertex::Vertex;
 
 const SHIP_SCALE: f32 = 0.12;
-const GRAVITY_PER_SIZE: f32 = 0.48;
+const GRAVITY_PER_SIZE: f32 = 0.8;
 const ORBIT_SPEED_SCALE: f32 = 0.65;
 const RENDER_SCALES: [f32; 5] = [1.0, 0.85, 0.7, 0.55, 0.45];
 const SLOW_FRAME_LIMIT: Duration = Duration::from_millis(17);
@@ -134,7 +134,7 @@ fn main() {
             scale: 4.5,
             rotation_speed: 0.035,
             gravity_radius: 18.0,
-            gravity_strength: 0.54,
+            gravity_strength: 0.9,
             kind: PlanetKind::Star,
         },
         CelestialBody {
@@ -328,9 +328,7 @@ fn main() {
                 surface_distance / (planet_radius * body.scale).max(1e-4)
             })
             .fold(f32::INFINITY, f32::min);
-        let max_resolution_drop = if nearest_surface_ratio < 2.0 {
-            0
-        } else if nearest_surface_ratio < 6.0 {
+        let max_resolution_drop = if nearest_surface_ratio < 6.0 {
             1
         } else {
             RENDER_SCALES.len() - 1
@@ -340,7 +338,6 @@ fn main() {
         framebuffer.clear();
         let camera_forward = (camera_target - camera_position).normalize();
         let camera_up = camera_forward.cross(right).normalize();
-        framebuffer.draw_skybox(&skybox, SKYBOX_FACE_SIZE, camera_forward, right, camera_up);
         draw_orbit_paths(
             &mut framebuffer,
             &mut depth_buffer,
@@ -350,7 +347,13 @@ fn main() {
             right,
             camera_up,
         );
-        for body in &celestial_bodies {
+        let mut render_order = celestial_bodies.each_ref();
+        render_order.sort_by(|a, b| {
+            let a_distance = (a.position - camera_position).length_sqr();
+            let b_distance = (b.position - camera_position).length_sqr();
+            a_distance.total_cmp(&b_distance)
+        });
+        for body in render_order {
             let body_uniforms = Uniforms {
                 model_matrix: body_model_matrix(
                     body.position,
@@ -397,6 +400,14 @@ fn main() {
             &ship_uniforms,
             &ship_vertices,
             &mut depth_buffer,
+        );
+        framebuffer.draw_skybox(
+            &skybox,
+            SKYBOX_FACE_SIZE,
+            camera_forward,
+            right,
+            camera_up,
+            &depth_buffer,
         );
         let render_time = render_started.elapsed();
         framebuffer.swap_buffers(&mut window, &thread, display_width, display_height);

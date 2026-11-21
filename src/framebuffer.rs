@@ -65,13 +65,19 @@ impl Framebuffer {
         forward: Vector3,
         right: Vector3,
         up: Vector3,
+        depth_buffer: &[f32],
     ) {
+        debug_assert_eq!(depth_buffer.len(), (self.width * self.height) as usize);
         let aspect = self.width as f32 / self.height.max(1) as f32;
         let half_fov_tangent = (60.0_f32.to_radians() * 0.5).tan();
         for y in 0..self.height {
             let ndc_y = 1.0 - 2.0 * (y as f32 + 0.5) / self.height as f32;
             let vertical = up * (ndc_y * half_fov_tangent);
             for x in 0..self.width {
+                let pixel_index = (y * self.width + x) as usize;
+                if depth_buffer[pixel_index].is_finite() {
+                    continue;
+                }
                 let ndc_x = 2.0 * (x as f32 + 0.5) / self.width as f32 - 1.0;
                 let horizontal = right * (ndc_x * aspect * half_fov_tangent);
                 let ray = forward + horizontal + vertical;
@@ -110,7 +116,7 @@ impl Framebuffer {
                 let top_right = ((y0 * face_size + x1) * 4) as usize;
                 let bottom_left = ((y1 * face_size + x0) * 4) as usize;
                 let bottom_right = ((y1 * face_size + x1) * 4) as usize;
-                let target_index = ((y * self.width + x) * 4) as usize;
+                let target_index = pixel_index * 4;
                 for channel in 0..3 {
                     let top = source[top_left + channel] as f32 * (1.0 - fx)
                         + source[top_right + channel] as f32 * fx;
