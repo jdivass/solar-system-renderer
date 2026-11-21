@@ -22,6 +22,8 @@ use crate::shaders::vertex_shader;
 use crate::triangle::{triangle_each_scanline, TriangleMode};
 use crate::vertex::Vertex;
 
+const SHIP_SCALE: f32 = 0.12;
+
 pub struct Uniforms {
     pub model_matrix: Matrix,
     pub camera_position: Vector3,
@@ -84,6 +86,11 @@ fn main() {
         .iter()
         .map(|&index| Vertex::new_with_color(mesh.vertices[index], Vector3::new(1.0, 1.0, 1.0)))
         .collect();
+    let planet_radius = mesh
+        .vertices
+        .iter()
+        .map(|vertex| vertex.length())
+        .fold(0.0_f32, f32::max);
     let ship_mesh = object::load_obj("model/Nave.obj").expect("No se pudo cargar model/Nave.obj");
     let ship_vertices: Vec<Vertex> = ship_mesh
         .indices
@@ -154,6 +161,7 @@ fn main() {
         if thrust == 0.0 {
             ship_speed *= (1.0 - 0.7 * dt).max(0.0);
         }
+        let previous_ship_position = ship_position;
         if window.is_key_down(KeyboardKey::KEY_A) {
             ship_position -= right * (5.0 * dt);
         }
@@ -167,6 +175,17 @@ fn main() {
             ship_position.y -= 5.0 * dt;
         }
         ship_position += forward * (ship_speed * dt);
+        if let Some(contact_position) = resolve_sphere_collision(
+            previous_ship_position,
+            ship_position,
+            planet_radius,
+            &ship_mesh.vertices,
+            ship_yaw,
+            ship_pitch,
+        ) {
+            ship_position = contact_position;
+            ship_speed = 0.0;
+        }
 
         let camera_target = ship_position + forward * 2.0;
         let camera_position = ship_position - forward * 5.0 + Vector3::new(0.0, 1.5, 0.0);
@@ -191,7 +210,7 @@ fn main() {
             &mut depth_buffer,
         );
         let ship_uniforms = Uniforms {
-            model_matrix: ship_model_matrix(ship_position, ship_yaw, ship_pitch, 0.12),
+            model_matrix: ship_model_matrix(ship_position, ship_yaw, ship_pitch, SHIP_SCALE),
             camera_position,
             camera_target,
             camera_right: right,
@@ -309,6 +328,90 @@ fn ship_forward(yaw: f32, pitch: f32) -> Vector3 {
         pitch.sin(),
         yaw.cos() * pitch.cos(),
     )
+}
+
+fn resolve_sphere_collision(
+    start: Vector3,
+    end: Vector3,
+    planet_radius: f32,
+    ship_vertices: &[Vector3],
+    ship_yaw: f32,
+    ship_pitch: f32,
+) -> Option<Vector3> {
+    let movement = end - start;
+    let a = movement.dot(movement);
+    let start_normal = sphere_outward_normal(start, ship_yaw, ship_pitch);
+    let start_radius =
+        planet_radius + ship_contact_extent(ship_vertices, ship_yaw, ship_pitch, -start_normal);
+
+    let (hit_time, hit_normal) = if start.dot(start) < start_radius * start_radius {
+        (0.0, start_normal)
+    } else if a > 1e-8 {
+        let closest_time = (-start.dot(movement) / a).clamp(0.0, 1.0);
+        let closest_point = start + movement * closest_time;
+        let closest_normal = sphere_outward_normal(closest_point, ship_yaw, ship_pitch);
+        let collision_radius = planet_radius
+            + ship_contact_extent(ship_vertices, ship_yaw, ship_pitch, -closest_normal);
+        let b = 2.0 * start.dot(movement);
+        let c = start.dot(start) - collision_radius * collision_radius;
+        let discriminant = b * b - 4.0 * a * c;
+        if discriminant < 0.0 {
+            return None;
+        }
+        let t = (-b - discriminant.sqrt()) / (2.0 * a);
+        if !(0.0..=1.0).contains(&t) {
+            return None;
+        }
+        let contact = start + movement * t;
+        (t, sphere_outward_normal(contact, ship_yaw, ship_pitch))
+    } else {
+        return None;
+    };
+
+    let contact_extent = ship_contact_extent(ship_vertices, ship_yaw, ship_pitch, -hit_normal);
+    let contact_radius = planet_radius + contact_extent + 0.001;
+    let corrected_contact = hit_normal * contact_radius;
+
+    // Retain motion along the surface while removing the component into the planet.
+    let remaining = movement * (1.0 - hit_time);
+    let inward_motion = remaining.dot(hit_normal).min(0.0);
+    let slide = remaining - hit_normal * inward_motion;
+    let mut corrected_position = corrected_contact + slide;
+    let corrected_normal = sphere_outward_normal(corrected_position, ship_yaw, ship_pitch);
+    let corrected_extent =
+        ship_contact_extent(ship_vertices, ship_yaw, ship_pitch, -corrected_normal);
+    let minimum_distance = planet_radius + corrected_extent + 0.001;
+    let distance = corrected_position.dot(corrected_position).sqrt();
+    if distance < minimum_distance {
+        corrected_position = corrected_normal * minimum_distance;
+    }
+    Some(corrected_position)
+}
+
+fn sphere_outward_normal(position: Vector3, yaw: f32, pitch: f32) -> Vector3 {
+    if position.dot(position) > 1e-8 {
+        position.normalize()
+    } else {
+        -ship_forward(yaw, pitch)
+    }
+}
+
+fn ship_contact_extent(
+    vertices: &[Vector3],
+    yaw: f32,
+    pitch: f32,
+    direction_toward_planet: Vector3,
+) -> f32 {
+    let forward = ship_forward(yaw, pitch);
+    let right = Vector3::new(yaw.cos(), 0.0, -yaw.sin());
+    let up = forward.cross(right);
+    vertices
+        .iter()
+        .map(|vertex| {
+            let offset = right * vertex.x + up * vertex.y + forward * vertex.z;
+            offset.dot(direction_toward_planet) * SHIP_SCALE
+        })
+        .fold(0.0_f32, f32::max)
 }
 
 fn ship_model_matrix(position: Vector3, yaw: f32, pitch: f32, scale: f32) -> Matrix {
