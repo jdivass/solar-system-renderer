@@ -26,10 +26,15 @@ fn multiply_matrix_vector4(matrix: &Matrix, vector: &Vector4) -> Vector4 {
 }
 
 pub fn vertex_shader(vertex: &Vertex, uniforms: &Uniforms) -> Vertex {
+    let (local_position, local_normal) = if uniforms.planet_kind == crate::PlanetKind::City {
+        crate::planet::deform_urban_vertex(vertex.position, vertex.normal)
+    } else {
+        (vertex.position, vertex.normal)
+    };
     let position = Vector4::new(
-        vertex.position.x,
-        vertex.position.y,
-        vertex.position.z,
+        local_position.x,
+        local_position.y,
+        local_position.z,
         1.0,
     );
 
@@ -48,6 +53,8 @@ pub fn vertex_shader(vertex: &Vertex, uniforms: &Uniforms) -> Vertex {
     let ndc_y = relative.dot(up) * focal / safe_depth;
 
     let mut result = vertex.clone();
+    result.position = local_position;
+    result.normal = local_normal;
     result.transformed_position = Vector3::new(
         (ndc_x + 1.0) * uniforms.screen_width * 0.5,
         (1.0 - ndc_y) * uniforms.screen_height * 0.5,

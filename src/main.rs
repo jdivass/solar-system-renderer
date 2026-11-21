@@ -23,7 +23,8 @@ use crate::triangle::{triangle_each_scanline, TriangleMode};
 use crate::vertex::Vertex;
 
 const SHIP_SCALE: f32 = 0.12;
-const GRAVITY_PER_SIZE: f32 = 0.4;
+const GRAVITY_PER_SIZE: f32 = 0.48;
+const ORBIT_SPEED_SCALE: f32 = 0.65;
 const RENDER_SCALES: [f32; 5] = [1.0, 0.85, 0.7, 0.55, 0.45];
 const SLOW_FRAME_LIMIT: Duration = Duration::from_millis(17);
 const FAST_FRAME_LIMIT: Duration = Duration::from_millis(12);
@@ -133,14 +134,14 @@ fn main() {
             scale: 4.5,
             rotation_speed: 0.035,
             gravity_radius: 18.0,
-            gravity_strength: 0.45,
+            gravity_strength: 0.54,
             kind: PlanetKind::Star,
         },
         CelestialBody {
             position: orbit_position(10.5, 0.0),
             previous_position: orbit_position(10.5, 0.0),
             orbit_radius: 10.5,
-            orbit_speed: 0.22,
+            orbit_speed: 0.22 * ORBIT_SPEED_SCALE,
             orbit_phase: 0.0,
             scale: 1.5,
             rotation_speed: 0.06,
@@ -152,7 +153,7 @@ fn main() {
             position: orbit_position(17.5, 2.1),
             previous_position: orbit_position(17.5, 2.1),
             orbit_radius: 17.5,
-            orbit_speed: 0.13,
+            orbit_speed: 0.13 * ORBIT_SPEED_SCALE,
             orbit_phase: 2.1,
             scale: 2.8,
             rotation_speed: 0.035,
@@ -164,7 +165,7 @@ fn main() {
             position: orbit_position(25.0, 4.15),
             previous_position: orbit_position(25.0, 4.15),
             orbit_radius: 25.0,
-            orbit_speed: 0.095,
+            orbit_speed: 0.095 * ORBIT_SPEED_SCALE,
             orbit_phase: 4.15,
             scale: 1.8,
             rotation_speed: 0.045,
@@ -176,7 +177,7 @@ fn main() {
             position: orbit_position(32.0, 0.85),
             previous_position: orbit_position(32.0, 0.85),
             orbit_radius: 32.0,
-            orbit_speed: 0.073,
+            orbit_speed: 0.073 * ORBIT_SPEED_SCALE,
             orbit_phase: 0.85,
             scale: 1.6,
             rotation_speed: 0.055,
@@ -188,7 +189,7 @@ fn main() {
             position: orbit_position(39.0, 3.05),
             previous_position: orbit_position(39.0, 3.05),
             orbit_radius: 39.0,
-            orbit_speed: 0.058,
+            orbit_speed: 0.058 * ORBIT_SPEED_SCALE,
             orbit_phase: 3.05,
             scale: 1.7,
             rotation_speed: 0.04,

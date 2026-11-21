@@ -48,6 +48,36 @@ fn fbm(mut p: Vector3) -> f32 {
     value / total * 0.5 + 0.5
 }
 
+fn urban_height(direction: Vector3) -> f32 {
+    let districts = fbm(direction * 8.0 + Vector3::new(3.0, 11.0, 5.0));
+    let towers = fbm(direction * 24.0 + Vector3::new(17.0, 2.0, 13.0));
+    let tower_mask = smoothstep(0.42, 0.72, towers);
+    (districts - 0.5) * 0.08 + tower_mask * 0.16
+}
+
+pub fn deform_urban_vertex(position: Vector3, normal: Vector3) -> (Vector3, Vector3) {
+    let direction = normal.normalize();
+    let radius = position.length();
+    let reference = if direction.y.abs() < 0.95 {
+        Vector3::new(0.0, 1.0, 0.0)
+    } else {
+        Vector3::new(1.0, 0.0, 0.0)
+    };
+    let tangent = reference.cross(direction).normalize();
+    let bitangent = direction.cross(tangent).normalize();
+    let step = 0.01;
+    let sample_height = |offset: Vector3| urban_height((direction + offset).normalize());
+    let tangent_slope = (sample_height(tangent * step) - sample_height(-tangent * step))
+        / (2.0 * step * radius.max(0.001));
+    let bitangent_slope = (sample_height(bitangent * step) - sample_height(-bitangent * step))
+        / (2.0 * step * radius.max(0.001));
+    let height = urban_height(direction);
+    let deformed_position = direction * (radius + height);
+    let deformed_normal =
+        (direction - tangent * tangent_slope - bitangent * bitangent_slope).normalize();
+    (deformed_position, deformed_normal)
+}
+
 fn cloud_mask(position: Vector3, uniforms: &Uniforms) -> f32 {
     let drift = Vector3::new(uniforms.time * 0.025, 0.0, uniforms.time * 0.012);
     let field =
@@ -205,8 +235,7 @@ pub fn shade(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     mix(surface_color, cloud_color, cloud_opacity)
 }
 
-fn shade_city(p: Vector3, _n: Vector3, diffuse: f32, _night: f32, _view: Vector3) -> Vector3 {
-    // Trántor es una ecumenópolis: la malla urbana cubre todo el planeta.
+fn shade_city(p: Vector3, _n: Vector3, diffuse: f32, night: f32, _view: Vector3) -> Vector3 {
     let districts = fbm(p * 38.0 + Vector3::new(4.0, 9.0, 2.0));
     let avenues_x = (p.x * 150.0 + (p.z * 18.0).sin() * 3.0).sin().abs();
     let avenues_z = (p.z * 150.0 + (p.x * 16.0).sin() * 3.0).sin().abs();
@@ -222,7 +251,17 @@ fn shade_city(p: Vector3, _n: Vector3, diffuse: f32, _night: f32, _view: Vector3
     );
     let road_network = Vector3::new(0.025, 0.035, 0.045) * (avenues * 0.55);
     let facade_detail = Vector3::new(0.08, 0.09, 0.1) * (windows * towers * 0.12);
-    (metal - road_network + facade_detail) * (0.18 + diffuse * 1.25)
+    let warm_windows = windows * towers * smoothstep(0.38, 0.7, districts) * night;
+    let avenue_lights = avenues * (0.25 + districts * 0.45) * night;
+    let cool_signs = smoothstep(
+        0.72,
+        0.9,
+        noise(p * 160.0 + Vector3::new(19.0, 3.0, 7.0)),
+    ) * towers
+        * night;
+    let city_lights = Vector3::new(1.0, 0.57, 0.24) * (warm_windows * 1.8 + avenue_lights * 0.65)
+        + Vector3::new(0.28, 0.65, 1.0) * (cool_signs * 1.25);
+    (metal - road_network + facade_detail) * (0.18 + diffuse * 1.25) + city_lights
 }
 
 fn shade_forest(
