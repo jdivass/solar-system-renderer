@@ -16,7 +16,7 @@ Desde la carpeta `shaders`:
 cargo run --release
 ```
 
-La ventana se centra en el monitor actual y ocupa el 70% de su ancho y el 70% de su alto. El renderer limita su resolución interna a 1280×720 y escala la imagen para ajustarla a la ventana.
+La ventana se centra en el monitor actual y ocupa el 70% de su ancho y el 70% de su alto. El renderer limita su resolución interna a 1280×720 y escala la imagen para ajustarla a la ventana. Si el renderizado tarda más de 17 ms durante 8 cuadros seguidos, reduce la resolución interna; la aumenta gradualmente tras 120 cuadros por debajo de 12 ms. La resolución se ajusta en cinco niveles, hasta el 45% del tamaño máximo.
 
 ## Selección y controles
 

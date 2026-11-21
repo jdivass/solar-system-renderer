@@ -78,6 +78,23 @@ impl Framebuffer {
         );
     }
 
+    pub fn resize(
+        &mut self,
+        width: u32,
+        height: u32,
+        window: &mut RaylibHandle,
+        thread: &RaylibThread,
+    ) {
+        if self.width == width && self.height == height {
+            return;
+        }
+        self.texture.take();
+        self.width = width;
+        self.height = height;
+        self.pixels = vec![0; width as usize * height as usize * 4];
+        self.init_texture(window, thread);
+    }
+
     pub fn swap_buffers(
         &mut self,
         window: &mut RaylibHandle,

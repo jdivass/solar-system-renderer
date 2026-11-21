@@ -13,7 +13,7 @@ pub mod vertex;
 
 use raylib::prelude::*;
 use std::hint::black_box;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::framebuffer::Framebuffer;
 use crate::primitive::primitive_assembly;
@@ -25,6 +25,11 @@ use crate::vertex::Vertex;
 const SHIP_SCALE: f32 = 0.12;
 const GRAVITY_INFLUENCE_RADIUS: f32 = 14.0;
 const PLANET_GRAVITY: f32 = 5.0;
+const RENDER_SCALES: [f32; 5] = [1.0, 0.85, 0.7, 0.55, 0.45];
+const SLOW_FRAME_LIMIT: Duration = Duration::from_millis(17);
+const FAST_FRAME_LIMIT: Duration = Duration::from_millis(12);
+const SLOW_FRAMES_BEFORE_DOWNSCALE: u32 = 8;
+const FAST_FRAMES_BEFORE_UPSCALE: u32 = 120;
 
 pub struct Uniforms {
     pub model_matrix: Matrix,
@@ -75,10 +80,10 @@ fn main() {
     let scale = (1280.0 / display_width as f32)
         .min(720.0 / display_height as f32)
         .min(1.0);
-    let render_width = (display_width as f32 * scale).round().max(1.0) as u32;
-    let render_height = (display_height as f32 * scale).round().max(1.0) as u32;
-    let mut framebuffer = Framebuffer::new(render_width, render_height);
-    let mut depth_buffer = vec![f32::INFINITY; (render_width * render_height) as usize];
+    let base_render_width = (display_width as f32 * scale).round().max(1.0) as u32;
+    let base_render_height = (display_height as f32 * scale).round().max(1.0) as u32;
+    let mut framebuffer = Framebuffer::new(base_render_width, base_render_height);
+    let mut depth_buffer = vec![f32::INFINITY; (base_render_width * base_render_height) as usize];
     framebuffer.set_background_color(Vector3::new(0.0, 0.0, 0.0));
     framebuffer.init_texture(&mut window, &thread);
 
@@ -115,6 +120,9 @@ fn main() {
     let start_time = Instant::now();
     let mut cloud_coverage = 0.55_f32;
     let mut planet_kind = PlanetKind::Rocky;
+    let mut render_scale_index = 0;
+    let mut slow_frames = 0;
+    let mut fast_frames = 0;
 
     while !window.window_should_close() {
         let dt = window.get_frame_time().min(0.05);
@@ -203,14 +211,15 @@ fn main() {
         let camera_target = ship_position + forward * 2.0;
         let camera_position = ship_position - forward * 5.0 + Vector3::new(0.0, 1.5, 0.0);
         let time = start_time.elapsed().as_secs_f32();
+        let render_started = Instant::now();
         depth_buffer.fill(f32::INFINITY);
         let planet_uniforms = Uniforms {
             model_matrix: planet_rotation_matrix(time * 0.26),
             camera_position,
             camera_target,
             camera_right: right,
-            screen_width: render_width as f32,
-            screen_height: render_height as f32,
+            screen_width: framebuffer.width as f32,
+            screen_height: framebuffer.height as f32,
             time,
             cloud_coverage,
             planet_kind,
@@ -227,8 +236,8 @@ fn main() {
             camera_position,
             camera_target,
             camera_right: right,
-            screen_width: render_width as f32,
-            screen_height: render_height as f32,
+            screen_width: framebuffer.width as f32,
+            screen_height: framebuffer.height as f32,
             time,
             cloud_coverage,
             planet_kind: PlanetKind::Ship,
@@ -239,7 +248,41 @@ fn main() {
             &ship_vertices,
             &mut depth_buffer,
         );
+        let render_time = render_started.elapsed();
         framebuffer.swap_buffers(&mut window, &thread, display_width, display_height);
+
+        if render_time > SLOW_FRAME_LIMIT {
+            slow_frames += 1;
+            fast_frames = 0;
+        } else if render_time < FAST_FRAME_LIMIT {
+            fast_frames += 1;
+            slow_frames = 0;
+        } else {
+            slow_frames = 0;
+            fast_frames = 0;
+        }
+
+        let next_scale_index = if slow_frames >= SLOW_FRAMES_BEFORE_DOWNSCALE
+            && render_scale_index + 1 < RENDER_SCALES.len()
+        {
+            slow_frames = 0;
+            render_scale_index + 1
+        } else if fast_frames >= FAST_FRAMES_BEFORE_UPSCALE && render_scale_index > 0 {
+            fast_frames = 0;
+            render_scale_index - 1
+        } else {
+            render_scale_index
+        };
+        if next_scale_index != render_scale_index {
+            render_scale_index = next_scale_index;
+            let adaptive_scale = RENDER_SCALES[render_scale_index];
+            let new_width = (base_render_width as f32 * adaptive_scale).round().max(1.0) as u32;
+            let new_height = (base_render_height as f32 * adaptive_scale)
+                .round()
+                .max(1.0) as u32;
+            framebuffer.resize(new_width, new_height, &mut window, &thread);
+            depth_buffer = vec![f32::INFINITY; (new_width * new_height) as usize];
+        }
     }
 }
 
