@@ -16,11 +16,11 @@ Desde la carpeta `shaders`:
 cargo run --release
 ```
 
-La ventana se centra en el monitor actual y ocupa el 70% de su ancho y el 70% de su alto. El renderer limita su resolución interna a 1280×720 y escala la imagen para ajustarla a la ventana. Si el renderizado tarda más de 17 ms durante 8 cuadros seguidos, reduce la resolución interna; la aumenta gradualmente tras 120 cuadros por debajo de 12 ms. La resolución se ajusta en cinco niveles, hasta el 45% del tamaño máximo.
+La ventana se centra en el monitor actual y ocupa el 70% de su ancho y el 70% de su alto. El renderer limita su resolución interna a 1280×720 y escala la imagen para ajustarla a la ventana. Si el renderizado tarda más de 17 ms durante 8 cuadros seguidos, reduce la resolución interna; la aumenta gradualmente tras 120 cuadros por debajo de 12 ms. Lejos de los cuerpos puede bajar hasta el 45%; a menos de seis radios de una superficie conserva al menos el 85%, y a menos de dos radios usa la resolución máxima para mantener visibles los detalles.
 
 ## Sistema solar y controles
 
-- La estrella está en el origen; el planeta rocoso y el gigante gaseoso aparecen a distancias mayores.
+- La estrella está en el origen. Después aparecen el planeta rocoso, el gigante gaseoso, el planeta anillado, el urbano y el boscoso.
 - Cada cuerpo rota sobre su eje y ejerce gravedad dentro de su radio de influencia; la nave colisiona con sus superficies.
 - La resolución adaptativa se aplica a toda la escena.
 - `Page Up` / `Page Down`: aumenta o reduce la cobertura de nubes.
@@ -54,12 +54,12 @@ Parámetros principales en `src/planet.rs`:
 
 ![Captura del gigante gaseoso](assets/gas-giant.png)
 
-Las bandas nacen de una onda basada en la coordenada vertical de la esfera, deformada por ruido 3D. Un segundo patrón genera bandas finas. Una tormenta ovalada se coloca sobre la superficie; alrededor de ella, una rotación localizada de las coordenadas curva las bandas y su ruido para formar el vórtice. El patrón cambia con el tiempo para simular movimiento atmosférico.
+Las bandas cubren la esfera siguiendo su latitud y alternan tonos azules. El ruido aporta variación y una tormenta ovalada curva localmente el patrón para formar un vórtice, sin convertir el centro del planeta en una franja uniforme.
 
 Parámetros principales en `shade_gas_giant`, dentro de `src/planet.rs`:
 
-- `warped_position.y * 30.0`: cantidad y escala de las bandas anchas.
-- `turbulence * 3.0`: deformación irregular de las bandas.
+- `geometric_normal.y * 58.0`: cantidad y escala de las bandas principales.
+- `turbulence * 1.4`: deformación irregular de las bandas.
 - `warped_position.y * 78.0`: frecuencia de las bandas finas.
 - Los dos `Vector3` del `mix` principal: colores alternos de las bandas, en componentes RGB normalizados entre `0.0` y `1.0`.
 - `storm_center`: ubicación del vórtice; `0.40` y `10.05` en `warp_into_vortex` controlan el radio de influencia y la rotación.
@@ -77,6 +77,18 @@ Parámetros principales en `shade_star`, dentro de `src/planet.rs`:
 - `p.y * 24.0` y `p.x * 31.0 + p.z * 17.0`: frecuencia de ondas y celdas.
 - Los dos `Vector3` del `mix`: colores fríos y calientes de la superficie.
 - `noise(p * 16.0 + drift)`: tamaño de las zonas de erupción.
+
+### Planeta anillado
+
+Un Júpiter estilizado con bandas atmosféricas color crema y ocre, una Gran Mancha Roja y anillos generados como una malla de triángulos alrededor del ecuador. Los anillos comparten la profundidad de la escena, por lo que la esfera oculta las partes que pasan detrás.
+
+### Planeta urbano
+
+Inspirado en Trántor, el planeta es una ecumenópolis: una superficie metálica cubierta por distritos, avenidas, torres y ventanas hasta el horizonte. Los detalles urbanos usan tonos materiales y no emiten luz propia.
+
+### Planeta boscoso
+
+Ruido a varias escalas crea regiones de vegetación, claros y lagos en tonos verdes y tierra. La superficie solo recibe la iluminación direccional, sin brillos añadidos.
 
 ## Navegación
 

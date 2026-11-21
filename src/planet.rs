@@ -116,6 +116,18 @@ pub fn shade(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     if uniforms.planet_kind == PlanetKind::GasGiant {
         return shade_gas_giant(p, geometric_normal, n, diffuse, view, uniforms);
     }
+    if uniforms.planet_kind == PlanetKind::Ringed {
+        if p.length() > 1.05 {
+            return fragment.color * (0.12 + diffuse * 0.88);
+        }
+        return shade_jupiter(p, geometric_normal, n, diffuse, view, uniforms);
+    }
+    if uniforms.planet_kind == PlanetKind::City {
+        return shade_city(p, n, diffuse, night, view);
+    }
+    if uniforms.planet_kind == PlanetKind::Forest {
+        return shade_forest(p, n, diffuse);
+    }
     let half_vector = (sun_direction + view).normalize();
     let highlight = n.dot(half_vector).max(0.0);
     // Potencia 32 con multiplicaciones para evitar un powf por fragmento.
@@ -178,6 +190,84 @@ pub fn shade(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     mix(surface_color, cloud_color, cloud_opacity)
 }
 
+fn shade_city(p: Vector3, _n: Vector3, diffuse: f32, _night: f32, _view: Vector3) -> Vector3 {
+    // Trántor es una ecumenópolis: la malla urbana cubre todo el planeta.
+    let districts = fbm(p * 38.0 + Vector3::new(4.0, 9.0, 2.0));
+    let avenues_x = (p.x * 150.0 + (p.z * 18.0).sin() * 3.0).sin().abs();
+    let avenues_z = (p.z * 150.0 + (p.x * 16.0).sin() * 3.0).sin().abs();
+    let avenues = 1.0 - smoothstep(0.0, 0.11, avenues_x.min(avenues_z));
+    let blocks = (p.x * 620.0).sin().abs() * (p.z * 620.0).sin().abs();
+    let towers = smoothstep(0.2, 0.82, noise(p * 310.0 + Vector3::new(3.0, 7.0, 11.0)));
+    let windows = smoothstep(0.48, 0.9, noise(p * 980.0 + Vector3::new(13.0, 5.0, 17.0)));
+    let structure = (0.35 + districts * 0.35 + towers * 0.3) * (0.72 + blocks * 0.28);
+    let metal = mix(
+        Vector3::new(0.035, 0.055, 0.085),
+        Vector3::new(0.3, 0.34, 0.38),
+        structure,
+    );
+    let road_network = Vector3::new(0.025, 0.035, 0.045) * (avenues * 0.55);
+    let facade_detail = Vector3::new(0.08, 0.09, 0.1) * (windows * towers * 0.12);
+    (metal - road_network + facade_detail) * (0.08 + diffuse * 0.92)
+}
+
+fn shade_forest(p: Vector3, _n: Vector3, diffuse: f32) -> Vector3 {
+    let canopy = fbm(p * 13.0 + Vector3::new(1.0, 5.0, 8.0));
+    let vegetation = smoothstep(0.3, 0.72, canopy);
+    let forest = mix(
+        Vector3::new(0.015, 0.08, 0.055),
+        Vector3::new(0.12, 0.42, 0.13),
+        vegetation,
+    );
+    let clearings = smoothstep(0.67, 0.9, noise(p * 7.0 + Vector3::new(12.0, 1.0, 3.0)));
+    let land = mix(forest, Vector3::new(0.46, 0.34, 0.16), clearings * 0.75);
+    let lakes = 1.0 - smoothstep(0.28, 0.38, canopy);
+    let surface = mix(land, Vector3::new(0.015, 0.12, 0.2), lakes);
+    surface * (0.035 + diffuse * 0.965)
+}
+
+fn shade_jupiter(
+    p: Vector3,
+    geometric_normal: Vector3,
+    n: Vector3,
+    diffuse: f32,
+    view: Vector3,
+    uniforms: &Uniforms,
+) -> Vector3 {
+    let drift = Vector3::new(uniforms.time * 0.018, 0.0, uniforms.time * 0.009);
+    let turbulence = noise(geometric_normal * 9.0 + drift) * 3.2;
+    let bands = (geometric_normal.y * 42.0 + turbulence + uniforms.time * 0.025).sin() * 0.5 + 0.5;
+    let fine_bands = (geometric_normal.y * 105.0 + noise(p * 18.0 + drift) * 2.0).sin() * 0.5 + 0.5;
+    let mut color = mix(
+        Vector3::new(0.28, 0.105, 0.045),
+        Vector3::new(0.88, 0.68, 0.43),
+        smoothstep(0.34, 0.66, bands),
+    );
+    color = mix(
+        color,
+        Vector3::new(0.96, 0.82, 0.62),
+        smoothstep(0.78, 0.97, fine_bands) * 0.42,
+    );
+
+    let spot_center = Vector3::new(0.48, -0.2, 0.85).normalize();
+    let tangent_x = Vector3::new(spot_center.z, 0.0, -spot_center.x).normalize();
+    let tangent_y = spot_center.cross(tangent_x).normalize();
+    let spot_x = geometric_normal.dot(tangent_x) / 0.19;
+    let spot_y = geometric_normal.dot(tangent_y) / 0.105;
+    let spot_radius = (spot_x * spot_x + spot_y * spot_y).sqrt();
+    let great_red_spot = 1.0 - smoothstep(0.82, 1.2, spot_radius);
+    let spot_rim = (1.0 - smoothstep(0.55, 0.9, spot_radius)) * smoothstep(0.72, 0.95, spot_radius);
+    color = mix(
+        color,
+        Vector3::new(0.58, 0.16, 0.075),
+        great_red_spot * 0.92,
+    );
+    color = mix(color, Vector3::new(0.8, 0.38, 0.18), spot_rim * 0.55);
+
+    let half_vector = (Vector3::new(-0.550606, 0.320352, 0.770848) + view).normalize();
+    let specular = n.dot(half_vector).max(0.0).powf(24.0);
+    color * (0.055 + diffuse * 0.945) + Vector3::new(1.0, 0.78, 0.52) * (specular * diffuse * 0.22)
+}
+
 fn shade_star(p: Vector3, n: Vector3, view: Vector3, uniforms: &Uniforms) -> Vector3 {
     let time = uniforms.time;
     let drift = Vector3::new(time * 0.03, time * 0.02, -time * 0.025);
@@ -218,11 +308,11 @@ fn shade_gas_giant(
     // La deformación afecta las bandas y su ruido, no solo el color de la tormenta.
     let turbulence = noise(warped_position * 6.0 + drift);
     let wave =
-        (warped_position.y * 30.0 + turbulence * 3.0 + uniforms.time * 0.035).sin() * 0.5 + 0.5;
-    let band = smoothstep(0.34, 0.66, wave);
+        (geometric_normal.y * 58.0 + turbulence * 1.4 + uniforms.time * 0.035).sin() * 0.5 + 0.5;
+    let band = smoothstep(0.42, 0.58, wave);
     let mut color = mix(
-        Vector3::new(0.003, 0.12, 0.35),
-        Vector3::new(0.2, 0.55, 0.9),
+        Vector3::new(0.012, 0.16, 0.3),
+        Vector3::new(0.16, 0.48, 0.72),
         band,
     );
 

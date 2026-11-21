@@ -46,6 +46,9 @@ pub struct Uniforms {
 pub enum PlanetKind {
     Rocky,
     GasGiant,
+    Ringed,
+    City,
+    Forest,
     Star,
     Ship,
 }
@@ -111,8 +114,8 @@ fn main() {
             position: Vector3::zero(),
             scale: 4.5,
             rotation_speed: 0.035,
-            gravity_radius: 32.0,
-            gravity_strength: 4.5 * GRAVITY_PER_SIZE,
+            gravity_radius: 18.0,
+            gravity_strength: 0.45,
             kind: PlanetKind::Star,
         },
         CelestialBody {
@@ -131,7 +134,32 @@ fn main() {
             gravity_strength: 2.8 * GRAVITY_PER_SIZE,
             kind: PlanetKind::GasGiant,
         },
+        CelestialBody {
+            position: Vector3::new(54.0, 0.0, 66.0),
+            scale: 1.8,
+            rotation_speed: 0.045,
+            gravity_radius: 13.0,
+            gravity_strength: 1.8 * GRAVITY_PER_SIZE,
+            kind: PlanetKind::Ringed,
+        },
+        CelestialBody {
+            position: Vector3::new(69.0, 0.0, 94.0),
+            scale: 1.6,
+            rotation_speed: 0.055,
+            gravity_radius: 12.0,
+            gravity_strength: 1.6 * GRAVITY_PER_SIZE,
+            kind: PlanetKind::City,
+        },
+        CelestialBody {
+            position: Vector3::new(81.0, 0.0, 124.0),
+            scale: 1.7,
+            rotation_speed: 0.04,
+            gravity_radius: 13.0,
+            gravity_strength: 1.7 * GRAVITY_PER_SIZE,
+            kind: PlanetKind::Forest,
+        },
     ];
+    let ring_vertices = create_ring_vertices();
     let ship_mesh = object::load_obj("model/Nave.obj").expect("No se pudo cargar model/Nave.obj");
     let ship_vertices: Vec<Vertex> = ship_mesh
         .indices
@@ -245,6 +273,21 @@ fn main() {
 
         let camera_target = ship_position + forward * 2.0;
         let camera_position = ship_position - forward * 5.0 + Vector3::new(0.0, 1.5, 0.0);
+        let nearest_surface_ratio = celestial_bodies
+            .iter()
+            .map(|body| {
+                let surface_distance =
+                    (ship_position - body.position).length() - planet_radius * body.scale;
+                surface_distance / (planet_radius * body.scale).max(1e-4)
+            })
+            .fold(f32::INFINITY, f32::min);
+        let max_resolution_drop = if nearest_surface_ratio < 2.0 {
+            0
+        } else if nearest_surface_ratio < 6.0 {
+            1
+        } else {
+            RENDER_SCALES.len() - 1
+        };
         let time = start_time.elapsed().as_secs_f32();
         let render_started = Instant::now();
         depth_buffer.fill(f32::INFINITY);
@@ -271,6 +314,14 @@ fn main() {
                 &vertex_array,
                 &mut depth_buffer,
             );
+            if body.kind == PlanetKind::Ringed {
+                render(
+                    &mut framebuffer,
+                    &body_uniforms,
+                    &ring_vertices,
+                    &mut depth_buffer,
+                );
+            }
         }
         let ship_uniforms = Uniforms {
             model_matrix: ship_model_matrix(ship_position, ship_yaw, ship_pitch, SHIP_SCALE),
@@ -303,8 +354,12 @@ fn main() {
             fast_frames = 0;
         }
 
-        let next_scale_index = if slow_frames >= SLOW_FRAMES_BEFORE_DOWNSCALE
-            && render_scale_index + 1 < RENDER_SCALES.len()
+        let next_scale_index = if render_scale_index > max_resolution_drop {
+            slow_frames = 0;
+            fast_frames = 0;
+            max_resolution_drop
+        } else if slow_frames >= SLOW_FRAMES_BEFORE_DOWNSCALE
+            && render_scale_index < max_resolution_drop
         {
             slow_frames = 0;
             render_scale_index + 1
@@ -533,6 +588,40 @@ fn ship_model_matrix(position: Vector3, yaw: f32, pitch: f32, scale: f32) -> Mat
         m14: position.z,
         m15: 1.0,
     }
+}
+
+fn create_ring_vertices() -> Vec<Vertex> {
+    const SEGMENTS: usize = 96;
+    const INNER_RADIUS: f32 = 1.25;
+    const OUTER_RADIUS: f32 = 2.35;
+    let mut vertices = Vec::with_capacity(SEGMENTS * 6);
+    for segment in 0..SEGMENTS {
+        let angle_a = segment as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
+        let angle_b = (segment + 1) as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
+        let point = |radius: f32, angle: f32| {
+            Vector3::new(radius * angle.cos(), 0.015, radius * angle.sin())
+        };
+        let inner_a = point(INNER_RADIUS, angle_a);
+        let outer_a = point(OUTER_RADIUS, angle_a);
+        let inner_b = point(INNER_RADIUS, angle_b);
+        let outer_b = point(OUTER_RADIUS, angle_b);
+        for position in [inner_a, outer_a, outer_b, inner_a, outer_b, inner_b] {
+            let band = ((position.length() * 18.0).sin() * 0.5 + 0.5).clamp(0.0, 1.0);
+            let color = mix_color(
+                Vector3::new(0.36, 0.24, 0.12),
+                Vector3::new(0.92, 0.78, 0.55),
+                band,
+            );
+            let mut vertex = Vertex::new_with_color(position, color);
+            vertex.normal = Vector3::new(0.0, 1.0, 0.0);
+            vertices.push(vertex);
+        }
+    }
+    vertices
+}
+
+fn mix_color(a: Vector3, b: Vector3, t: f32) -> Vector3 {
+    a * (1.0 - t) + b * t
 }
 
 fn body_model_matrix(position: Vector3, scale: f32, angle: f32) -> Matrix {
