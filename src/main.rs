@@ -285,15 +285,11 @@ fn main() {
             ship_position.y -= 5.0 * dt;
         }
         ship_position += forward * (ship_speed * dt);
-        let mut gravity_acceleration = Vector3::zero();
-        for body in &celestial_bodies {
-            let toward_body = body.position - ship_position;
-            let distance = toward_body.length();
-            if distance < body.gravity_radius && distance > 1e-4 {
-                let falloff = 1.0 - distance / body.gravity_radius;
-                gravity_acceleration += toward_body * (body.gravity_strength * falloff / distance);
-            }
-        }
+        let gravity_acceleration = gravity_acceleration_at(
+            ship_position,
+            &celestial_bodies,
+            planet_radius,
+        );
         gravity_velocity += gravity_acceleration * dt;
         ship_position += gravity_velocity * dt;
         let mut collision_normal = None;
@@ -638,6 +634,34 @@ fn sample_panorama_pixel(pixels: &[u8], width: u32, height: u32, u: f32, v: f32)
 
 fn orbit_position(radius: f32, angle: f32) -> Vector3 {
     Vector3::new(radius * angle.cos(), 0.0, radius * angle.sin())
+}
+
+fn gravity_acceleration_at(
+    ship_position: Vector3,
+    bodies: &[CelestialBody],
+    planet_radius: f32,
+) -> Vector3 {
+    let mut closest_surface = f32::INFINITY;
+    let mut acceleration = Vector3::zero();
+
+    for body in bodies {
+        let toward_center = body.position - ship_position;
+        let distance = toward_center.length();
+        if distance <= 1e-4 || distance >= body.gravity_radius {
+            continue;
+        }
+
+        // Las zonas de influencia pueden solaparse. Elegir la superficie más
+        // cercana evita que otro cuerpo desvíe el tirón junto al planeta.
+        let surface_distance = distance - planet_radius * body.scale;
+        if surface_distance < closest_surface {
+            closest_surface = surface_distance;
+            let falloff = 1.0 - distance / body.gravity_radius;
+            acceleration = toward_center * (body.gravity_strength * falloff / distance);
+        }
+    }
+
+    acceleration
 }
 
 fn draw_orbit_paths(
