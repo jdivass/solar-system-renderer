@@ -125,7 +125,7 @@ pub fn shade(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     }
     if uniforms.planet_kind == PlanetKind::Ringed {
         if p.length() > 1.05 {
-            return fragment.color * (0.2 + diffuse * 1.1);
+            return fragment.color * (0.32 + diffuse * 1.22);
         }
         return shade_jupiter(
             p,
@@ -141,7 +141,7 @@ pub fn shade(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
         return shade_city(p, n, diffuse, night, view);
     }
     if uniforms.planet_kind == PlanetKind::Forest {
-        return shade_forest(p, n, diffuse);
+        return shade_forest(p, n, diffuse, sun_direction, view);
     }
     let half_vector = (sun_direction + view).normalize();
     let highlight = n.dot(half_vector).max(0.0);
@@ -225,7 +225,13 @@ fn shade_city(p: Vector3, _n: Vector3, diffuse: f32, _night: f32, _view: Vector3
     (metal - road_network + facade_detail) * (0.18 + diffuse * 1.25)
 }
 
-fn shade_forest(p: Vector3, _n: Vector3, diffuse: f32) -> Vector3 {
+fn shade_forest(
+    p: Vector3,
+    geometric_normal: Vector3,
+    _diffuse: f32,
+    sun_direction: Vector3,
+    view: Vector3,
+) -> Vector3 {
     let canopy = fbm(p * 13.0 + Vector3::new(1.0, 5.0, 8.0));
     let vegetation = smoothstep(0.3, 0.72, canopy);
     let forest = mix(
@@ -237,7 +243,30 @@ fn shade_forest(p: Vector3, _n: Vector3, diffuse: f32) -> Vector3 {
     let land = mix(forest, Vector3::new(0.46, 0.34, 0.16), clearings * 0.75);
     let lakes = 1.0 - smoothstep(0.28, 0.38, canopy);
     let surface = mix(land, Vector3::new(0.015, 0.12, 0.2), lakes);
-    surface * (0.14 + diffuse * 1.25)
+    let mapped_normal = forest_surface_normal(p, geometric_normal);
+    let diffuse = mapped_normal.dot(sun_direction).max(0.0);
+    let half_vector = (sun_direction + view).normalize();
+    let highlight = mapped_normal.dot(half_vector).max(0.0);
+    let specular = highlight * highlight * highlight * highlight;
+    surface * (0.12 + diffuse * 1.25) + Vector3::new(0.24, 0.3, 0.12) * (specular * diffuse * 0.16)
+}
+
+fn forest_surface_normal(position: Vector3, normal: Vector3) -> Vector3 {
+    // Diferencias centrales de un mapa de altura procedural dan la pendiente tangente.
+    let reference = if normal.y.abs() < 0.95 {
+        Vector3::new(0.0, 1.0, 0.0)
+    } else {
+        Vector3::new(1.0, 0.0, 0.0)
+    };
+    let tangent = reference.cross(normal).normalize();
+    let bitangent = normal.cross(tangent).normalize();
+    let step = 0.004;
+    let height = |sample: Vector3| noise(sample * 56.0);
+    let tangent_slope =
+        (height(position + tangent * step) - height(position - tangent * step)) / (2.0 * step);
+    let bitangent_slope =
+        (height(position + bitangent * step) - height(position - bitangent * step)) / (2.0 * step);
+    (normal - tangent * (tangent_slope * 0.006) - bitangent * (bitangent_slope * 0.006)).normalize()
 }
 
 fn shade_jupiter(

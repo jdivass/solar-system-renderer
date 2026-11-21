@@ -98,7 +98,15 @@ fn main() {
     let base_render_width = (display_width as f32 * scale).round().max(1.0) as u32;
     let base_render_height = (display_height as f32 * scale).round().max(1.0) as u32;
     const SKYBOX_FACE_SIZE: u32 = 512;
-    let skybox = create_nebula_skybox(SKYBOX_FACE_SIZE);
+    let nebula_image =
+        Image::load_image("assets/nebulose.jpg").expect("No se pudo cargar assets/nebulose.jpg");
+    let nebula_pixels = nebula_image.get_image_data_u8(false);
+    let skybox = create_image_skybox(
+        SKYBOX_FACE_SIZE,
+        &nebula_pixels,
+        nebula_image.width() as u32,
+        nebula_image.height() as u32,
+    );
     let mut framebuffer = Framebuffer::new(base_render_width, base_render_height);
     let mut depth_buffer = vec![f32::INFINITY; (base_render_width * base_render_height) as usize];
     framebuffer.set_background_color(Vector3::new(0.003, 0.002, 0.012));
@@ -332,6 +340,15 @@ fn main() {
         let camera_forward = (camera_target - camera_position).normalize();
         let camera_up = camera_forward.cross(right).normalize();
         framebuffer.draw_skybox(&skybox, SKYBOX_FACE_SIZE, camera_forward, right, camera_up);
+        draw_orbit_paths(
+            &mut framebuffer,
+            &mut depth_buffer,
+            &celestial_bodies,
+            camera_position,
+            camera_forward,
+            right,
+            camera_up,
+        );
         for body in &celestial_bodies {
             let body_uniforms = Uniforms {
                 model_matrix: body_model_matrix(
@@ -494,7 +511,7 @@ fn render(
     for vertices in vertex_array.chunks_exact(3) {
         let a = vertex_shader(&vertices[0], uniforms);
         let b = vertex_shader(&vertices[1], uniforms);
-        let c = vertex_shader(&vertices[2], uniforms);
+       let c = vertex_shader(&vertices[2], uniforms);
         if a.transformed_position.z > 0.0
             && b.transformed_position.z > 0.0
             && c.transformed_position.z > 0.0
@@ -522,7 +539,12 @@ fn ship_forward(yaw: f32, pitch: f32) -> Vector3 {
     )
 }
 
-fn create_nebula_skybox(face_size: u32) -> Vec<Vec<u8>> {
+fn create_image_skybox(
+    face_size: u32,
+    panorama: &[u8],
+    panorama_width: u32,
+    panorama_height: u32,
+) -> Vec<Vec<u8>> {
     (0..6)
         .map(|face| {
             let mut pixels = vec![0_u8; (face_size * face_size * 4) as usize];
@@ -531,7 +553,17 @@ fn create_nebula_skybox(face_size: u32) -> Vec<Vec<u8>> {
                 for x in 0..face_size {
                     let u = 2.0 * (x as f32 + 0.5) / face_size as f32 - 1.0;
                     let direction = skybox_face_direction(face, u, v).normalize();
-                    let color = nebula_sky_color(direction);
+                    let longitude = direction.x.atan2(direction.z) / std::f32::consts::TAU + 0.25;
+                    let panorama_u = longitude.rem_euclid(1.0);
+                    let panorama_v =
+                        0.5 - direction.y.clamp(-1.0, 1.0).asin() / std::f32::consts::PI;
+                    let color = sample_nebula_panorama(
+                        panorama,
+                        panorama_width,
+                        panorama_height,
+                        panorama_u,
+                        panorama_v,
+                    );
                     let index = ((y * face_size + x) * 4) as usize;
                     pixels[index] = (color.x.clamp(0.0, 1.0) * 255.0) as u8;
                     pixels[index + 1] = (color.y.clamp(0.0, 1.0) * 255.0) as u8;
@@ -555,48 +587,184 @@ fn skybox_face_direction(face: usize, u: f32, v: f32) -> Vector3 {
     }
 }
 
-fn nebula_sky_color(direction: Vector3) -> Vector3 {
-    let galactic_axis = Vector3::new(0.23, 0.88, -0.42).normalize();
-    let latitude = direction.dot(galactic_axis);
-    let clouds = (direction.x * 12.0 + direction.z * 7.0).sin()
-        * (direction.y * 10.0 - direction.x * 4.0).cos();
-    let density = 0.4 + clouds * 0.24;
-    let pink = (-latitude * latitude * 34.0).exp() * density;
-    let blue_latitude = latitude - 0.16 * (direction.x * 3.0 + direction.z * 2.0).sin();
-    let blue = (-blue_latitude * blue_latitude * 48.0).exp() * (0.35 + clouds * 0.22);
-    let green_latitude = latitude + 0.18 * (direction.z * 2.5 - direction.x * 2.0).sin();
-    let green = (-green_latitude * green_latitude * 58.0).exp() * (0.3 + clouds * 0.2);
-    let mut color = Vector3::new(0.003, 0.004, 0.015)
-        + Vector3::new(0.4, 0.045, 0.19) * pink
-        + Vector3::new(0.035, 0.12, 0.38) * blue
-        + Vector3::new(0.025, 0.22, 0.11) * green;
-
-    let grid = 48.0;
-    let cell_x = (direction.x * grid).floor() as i32;
-    let cell_y = (direction.y * grid).floor() as i32;
-    let cell_z = (direction.z * grid).floor() as i32;
-    let mut hash = (cell_x as u32).wrapping_mul(0x8da6_b343)
-        ^ (cell_y as u32).wrapping_mul(0xd816_3841)
-        ^ (cell_z as u32).wrapping_mul(0xcb1a_b31f);
-    hash ^= hash >> 13;
-    hash = hash.wrapping_mul(0x85eb_ca6b);
-    hash ^= hash >> 16;
-    if hash % 112 == 0 {
-        let star_direction = Vector3::new(
-            (cell_x as f32 + 0.5) / grid,
-            (cell_y as f32 + 0.5) / grid,
-            (cell_z as f32 + 0.5) / grid,
-        )
-        .normalize();
-        let alignment = direction.dot(star_direction).clamp(-1.0, 1.0);
-        let star = (1.0 - (1.0 - alignment) / 0.000035).clamp(0.0, 1.0);
-        color += Vector3::new(0.95, 0.96, 1.0) * star;
+fn sample_nebula_panorama(pixels: &[u8], width: u32, height: u32, u: f32, v: f32) -> Vector3 {
+    let mut horizontal = u;
+    let seam_width = 0.035;
+    let signed_u = if u > 0.5 { u - 1.0 } else { u };
+    let seam_t = ((signed_u + seam_width) / (2.0 * seam_width)).clamp(0.0, 1.0);
+    let in_seam = signed_u.abs() < seam_width;
+    if in_seam {
+        let right_edge_u = 1.0 - seam_width + seam_t * seam_width;
+        let left_edge_u = seam_t * seam_width;
+        let right_color = sample_panorama_pixel(pixels, width, height, right_edge_u, v);
+        let left_color = sample_panorama_pixel(pixels, width, height, left_edge_u, v);
+        return right_color * (1.0 - seam_t) + left_color * seam_t;
     }
-    color
+    horizontal = horizontal.rem_euclid(1.0);
+    sample_panorama_pixel(pixels, width, height, horizontal, v)
+}
+
+fn sample_panorama_pixel(pixels: &[u8], width: u32, height: u32, u: f32, v: f32) -> Vector3 {
+    let x = (u.rem_euclid(1.0) * width as f32 - 0.5).rem_euclid(width as f32);
+    let y = (v.clamp(0.0, 1.0) * (height - 1) as f32).clamp(0.0, (height - 1) as f32);
+    let x0 = x.floor() as u32;
+    let x1 = (x0 + 1) % width;
+    let y0 = y.floor() as u32;
+    let y1 = (y0 + 1).min(height - 1);
+    let fx = x - x0 as f32;
+    let fy = y - y0 as f32;
+    let sample_channel = |channel: usize| {
+        let index = |sample_x: u32, sample_y: u32| ((sample_y * width + sample_x) * 4) as usize;
+        let top = pixels[index(x0, y0) + channel] as f32 * (1.0 - fx)
+            + pixels[index(x1, y0) + channel] as f32 * fx;
+        let bottom = pixels[index(x0, y1) + channel] as f32 * (1.0 - fx)
+            + pixels[index(x1, y1) + channel] as f32 * fx;
+        (top * (1.0 - fy) + bottom * fy) / 255.0
+    };
+    Vector3::new(sample_channel(0), sample_channel(1), sample_channel(2))
 }
 
 fn orbit_position(radius: f32, angle: f32) -> Vector3 {
     Vector3::new(radius * angle.cos(), 0.0, radius * angle.sin())
+}
+
+fn draw_orbit_paths(
+    framebuffer: &mut Framebuffer,
+    depth_buffer: &mut [f32],
+    bodies: &[CelestialBody],
+    camera_position: Vector3,
+    camera_forward: Vector3,
+    camera_right: Vector3,
+    camera_up: Vector3,
+) {
+    const SEGMENTS: usize = 360;
+    for body in bodies.iter().skip(1) {
+        let color = match body.kind {
+            PlanetKind::Rocky => Vector3::new(0.12, 0.42, 0.58),
+            PlanetKind::GasGiant => Vector3::new(0.16, 0.42, 0.72),
+            PlanetKind::Ringed => Vector3::new(0.78, 0.52, 0.31),
+            PlanetKind::City => Vector3::new(0.42, 0.48, 0.55),
+            PlanetKind::Forest => Vector3::new(0.16, 0.5, 0.24),
+            PlanetKind::Star | PlanetKind::Ship => continue,
+        };
+        let mut previous = project_world_position(
+            orbit_position(body.orbit_radius, 0.0),
+            camera_position,
+            camera_forward,
+            camera_right,
+            camera_up,
+            framebuffer.width,
+            framebuffer.height,
+        );
+        for segment in 1..=SEGMENTS {
+            let angle = segment as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
+            let current = project_world_position(
+                orbit_position(body.orbit_radius, angle),
+                camera_position,
+                camera_forward,
+                camera_right,
+                camera_up,
+                framebuffer.width,
+                framebuffer.height,
+            );
+            if let (Some(start), Some(end)) = (previous, current) {
+                draw_depth_line(framebuffer, depth_buffer, start, end, color);
+            }
+            previous = current;
+        }
+    }
+}
+
+fn project_world_position(
+    position: Vector3,
+    camera_position: Vector3,
+    camera_forward: Vector3,
+    camera_right: Vector3,
+    camera_up: Vector3,
+    screen_width: u32,
+    screen_height: u32,
+) -> Option<Vector3> {
+    let relative = position - camera_position;
+    let depth = relative.dot(camera_forward);
+    if depth <= 0.1 {
+        return None;
+    }
+    let aspect = screen_width as f32 / screen_height.max(1) as f32;
+    let focal = 1.0 / (60.0_f32.to_radians() * 0.5).tan();
+    let ndc_x = relative.dot(camera_right) * focal / (aspect * depth);
+    let ndc_y = relative.dot(camera_up) * focal / depth;
+    Some(Vector3::new(
+        (ndc_x + 1.0) * screen_width as f32 * 0.5,
+        (1.0 - ndc_y) * screen_height as f32 * 0.5,
+        depth,
+    ))
+}
+
+fn draw_depth_line(
+    framebuffer: &mut Framebuffer,
+    depth_buffer: &mut [f32],
+    start: Vector3,
+    end: Vector3,
+    color: Vector3,
+) {
+    let Some((start, end)) = clip_screen_line(start, end, framebuffer.width, framebuffer.height)
+    else {
+        return;
+    };
+    let delta = end - start;
+    let steps = delta.x.abs().max(delta.y.abs()).ceil() as usize;
+    if steps == 0 {
+        return;
+    }
+    for step in 0..=steps {
+        let t = step as f32 / steps as f32;
+        let x = (start.x + delta.x * t).round() as i32;
+        let y = (start.y + delta.y * t).round() as i32;
+        if x < 0 || y < 0 || x as u32 >= framebuffer.width || y as u32 >= framebuffer.height {
+            continue;
+        }
+        let index = y as usize * framebuffer.width as usize + x as usize;
+        let depth = start.z + delta.z * t;
+        if depth < depth_buffer[index] {
+            depth_buffer[index] = depth;
+            framebuffer.point_unchecked(x, y, color);
+        }
+    }
+}
+
+fn clip_screen_line(
+    start: Vector3,
+    end: Vector3,
+    width: u32,
+    height: u32,
+) -> Option<(Vector3, Vector3)> {
+    let delta = end - start;
+    let mut t_min = 0.0_f32;
+    let mut t_max = 1.0_f32;
+    let boundaries = [
+        (-delta.x, start.x),
+        (delta.x, width.saturating_sub(1) as f32 - start.x),
+        (-delta.y, start.y),
+        (delta.y, height.saturating_sub(1) as f32 - start.y),
+    ];
+    for (direction, distance) in boundaries {
+        if direction == 0.0 {
+            if distance < 0.0 {
+                return None;
+            }
+            continue;
+        }
+        let ratio = distance / direction;
+        if direction < 0.0 {
+            t_min = t_min.max(ratio);
+        } else {
+            t_max = t_max.min(ratio);
+        }
+        if t_min > t_max {
+            return None;
+        }
+    }
+    Some((start + delta * t_min, start + delta * t_max))
 }
 
 fn resolve_sphere_collision(
@@ -725,8 +893,8 @@ fn create_ring_vertices() -> Vec<Vertex> {
         for position in [inner_a, outer_a, outer_b, inner_a, outer_b, inner_b] {
             let band = ((position.length() * 18.0).sin() * 0.5 + 0.5).clamp(0.0, 1.0);
             let color = mix_color(
-                Vector3::new(0.36, 0.24, 0.12),
-                Vector3::new(0.92, 0.78, 0.55),
+                Vector3::new(0.44, 0.3, 0.17),
+                Vector3::new(0.98, 0.86, 0.65),
                 band,
             );
             let mut vertex = Vertex::new_with_color(position, color);

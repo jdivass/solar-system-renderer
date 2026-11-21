@@ -22,9 +22,10 @@ La ventana se centra en el monitor actual y ocupa el 70% de su ancho y el 70% de
 
 - La estrella está en el origen. Después aparecen el planeta rocoso, el gigante gaseoso, el planeta anillado, el urbano y el boscoso.
 - Los planetas recorren órbitas circulares compactas con distintas fases y velocidades, repartidas alrededor del sol.
+- Cada órbita se muestra como una línea continua del color principal de su planeta y respeta la profundidad de los cuerpos.
 - Cada cuerpo rota sobre su eje y ejerce gravedad dentro de su radio de influencia; la nave colisiona con sus superficies.
 - La luz de la estrella central ilumina los cuerpos y la nave desde el origen, con iluminación ambiental para conservar detalle en las sombras.
-- El cielo usa una skybox procedural con nubes rosadas, azules y verdes y estrellas blancas en posiciones fijas. La vista cambia al girar la nave.
+- El cielo usa `assets/nebulose.jpg` como panorama de una skybox que sigue la orientación de la cámara.
 - La resolución adaptativa se aplica a toda la escena.
 - `Page Up` / `Page Down`: aumenta o reduce la cobertura de nubes.
 - Flechas izquierda/derecha: gira la nave.
@@ -91,7 +92,7 @@ Inspirado en Trántor, el planeta es una ecumenópolis: una superficie metálica
 
 ### Planeta boscoso
 
-Ruido a varias escalas crea regiones de vegetación, claros y lagos en tonos verdes y tierra. La superficie solo recibe la iluminación direccional, sin brillos añadidos.
+Ruido a varias escalas crea regiones de vegetación, claros y lagos en tonos verdes y tierra. Un mapa normal procedural, derivado de ruido de alta frecuencia, perturba la iluminación por fragmento para dar relieve a las copas y a la superficie. El planeta solo recibe la luz direccional, sin brillos añadidos.
 
 ## Navegación
 
