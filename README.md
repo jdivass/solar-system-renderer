@@ -80,7 +80,7 @@ Parámetros principales en `shade_star`, dentro de `src/planet.rs`:
 
 ## Navegación
 
-La cámara sigue la nave desde atrás. La aceleración conserva la inercia y disminuye gradualmente al soltar `W` o `S`. La nave puede girar, inclinarse, desplazarse lateralmente y cambiar de altura.
+La cámara sigue la nave desde atrás. La aceleración conserva la inercia y disminuye gradualmente al soltar `W` o `S`. La nave puede girar, inclinarse, desplazarse lateralmente y cambiar de altura. Al entrar a 14 unidades del planeta, su gravedad atrae la nave con más fuerza a medida que se acerca a la superficie.
 
 ## Animación
 

@@ -23,6 +23,8 @@ use crate::triangle::{triangle_each_scanline, TriangleMode};
 use crate::vertex::Vertex;
 
 const SHIP_SCALE: f32 = 0.12;
+const GRAVITY_INFLUENCE_RADIUS: f32 = 14.0;
+const PLANET_GRAVITY: f32 = 5.0;
 
 pub struct Uniforms {
     pub model_matrix: Matrix,
@@ -109,6 +111,7 @@ fn main() {
     let mut ship_yaw = 0.0_f32;
     let mut ship_pitch = 0.0_f32;
     let mut ship_speed = 0.0_f32;
+    let mut gravity_velocity = Vector3::zero();
     let start_time = Instant::now();
     let mut cloud_coverage = 0.55_f32;
     let mut planet_kind = PlanetKind::Rocky;
@@ -175,6 +178,13 @@ fn main() {
             ship_position.y -= 5.0 * dt;
         }
         ship_position += forward * (ship_speed * dt);
+        let distance_to_planet = ship_position.length();
+        if distance_to_planet < GRAVITY_INFLUENCE_RADIUS && distance_to_planet > 1e-4 {
+            let gravity_direction = -ship_position * (1.0 / distance_to_planet);
+            let gravity_falloff = 1.0 - distance_to_planet / GRAVITY_INFLUENCE_RADIUS;
+            gravity_velocity += gravity_direction * (PLANET_GRAVITY * gravity_falloff * dt);
+        }
+        ship_position += gravity_velocity * dt;
         if let Some(contact_position) = resolve_sphere_collision(
             previous_ship_position,
             ship_position,
@@ -185,6 +195,9 @@ fn main() {
         ) {
             ship_position = contact_position;
             ship_speed = 0.0;
+            let outward = contact_position.normalize();
+            let inward_gravity = gravity_velocity.dot(outward).min(0.0);
+            gravity_velocity -= outward * inward_gravity;
         }
 
         let camera_target = ship_position + forward * 2.0;
