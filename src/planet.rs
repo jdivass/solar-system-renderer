@@ -71,20 +71,37 @@ fn warp_into_vortex(position: Vector3, center: Vector3) -> Vector3 {
         + (axis * (radial_component * (1.0 - cosine)))
 }
 
+fn transform_position(matrix: Matrix, position: Vector3) -> Vector3 {
+    Vector3::new(
+        matrix.m0 * position.x + matrix.m4 * position.y + matrix.m8 * position.z + matrix.m12,
+        matrix.m1 * position.x + matrix.m5 * position.y + matrix.m9 * position.z + matrix.m13,
+        matrix.m2 * position.x + matrix.m6 * position.y + matrix.m10 * position.z + matrix.m14,
+    )
+}
+
+fn transform_direction(matrix: Matrix, direction: Vector3) -> Vector3 {
+    Vector3::new(
+        matrix.m0 * direction.x + matrix.m4 * direction.y + matrix.m8 * direction.z,
+        matrix.m1 * direction.x + matrix.m5 * direction.y + matrix.m9 * direction.z,
+        matrix.m2 * direction.x + matrix.m6 * direction.y + matrix.m10 * direction.z,
+    )
+}
+
 pub fn shade(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     let p = fragment.object_position;
     // Las normales se normalizan una vez al interpolarlas en el rasterizador.
     let geometric_normal = fragment.normal;
-    let n = geometric_normal;
+    let model = uniforms.model_matrix;
+    let world_position = transform_position(model, p);
+    let world_normal = transform_direction(model, geometric_normal);
+    let n = if uniforms.planet_kind == PlanetKind::Ship {
+        world_normal.normalize()
+    } else {
+        world_normal
+    };
     if uniforms.planet_kind == PlanetKind::Ship {
         let sun_direction = Vector3::new(-0.550606, 0.320352, 0.770848);
         let diffuse = (n.dot(sun_direction)).max(0.0);
-        let model = uniforms.model_matrix;
-        let world_position = Vector3::new(
-            model.m0 * p.x + model.m4 * p.y + model.m8 * p.z + model.m12,
-            model.m1 * p.x + model.m5 * p.y + model.m9 * p.z + model.m13,
-            model.m2 * p.x + model.m6 * p.y + model.m10 * p.z + model.m14,
-        );
         let rim = (1.0
             - n.dot((uniforms.camera_position - world_position).normalize())
                 .max(0.0))
@@ -96,7 +113,7 @@ pub fn shade(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     let sun_facing = n.dot(sun_direction);
     let diffuse = sun_facing.max(0.0);
     let night = 1.0 - smoothstep(-0.12, 0.12, sun_facing);
-    let view = (uniforms.camera_position - p).normalize();
+    let view = (uniforms.camera_position - world_position).normalize();
     if uniforms.planet_kind == PlanetKind::Star {
         return shade_star(p, n, view, uniforms);
     }

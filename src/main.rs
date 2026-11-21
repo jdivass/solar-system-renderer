@@ -192,7 +192,7 @@ fn main() {
         let time = start_time.elapsed().as_secs_f32();
         depth_buffer.fill(f32::INFINITY);
         let planet_uniforms = Uniforms {
-            model_matrix: Matrix::identity(),
+            model_matrix: planet_rotation_matrix(time * 0.26),
             camera_position,
             camera_target,
             camera_right: right,
@@ -434,6 +434,28 @@ fn ship_model_matrix(position: Vector3, yaw: f32, pitch: f32, scale: f32) -> Mat
         m12: position.x,
         m13: position.y,
         m14: position.z,
+        m15: 1.0,
+    }
+}
+
+fn planet_rotation_matrix(angle: f32) -> Matrix {
+    let (sine, cosine) = angle.sin_cos();
+    Matrix {
+        m0: cosine,
+        m1: 0.0,
+        m2: -sine,
+        m3: 0.0,
+        m4: 0.0,
+        m5: 1.0,
+        m6: 0.0,
+        m7: 0.0,
+        m8: sine,
+        m9: 0.0,
+        m10: cosine,
+        m11: 0.0,
+        m12: 0.0,
+        m13: 0.0,
+        m14: 0.0,
         m15: 1.0,
     }
 }
